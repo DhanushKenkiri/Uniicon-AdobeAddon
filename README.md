@@ -159,4 +159,4 @@ This is a proprietary Adobe Express add-on. All rights reserved.
 
 🚀 **Ready to revolutionize icon creation with AI?** Start generating professional icons with simple text descriptions!
 
-**Inspired from** [GIthub Repo](https://github.com/DhanushKenkiri/Uniicon)
+**Inspired from** [Uniicon](https://github.com/DhanushKenkiri/Uniicon)
