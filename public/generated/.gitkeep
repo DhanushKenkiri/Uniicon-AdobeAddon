@@ -1,0 +1,20 @@
+# Generated Images
+
+This folder contains AI-generated icons created by the Uniicon Adobe Express add-on.
+
+Images are automatically saved here when generated through the multi-agent AI pipeline.
+
+## File Naming Convention
+
+Files are named using the pattern:
+`generated-[description]-[timestamp].png`
+
+Where:
+- `description` is the cleaned user input
+- `timestamp` is the ISO timestamp when generated
+
+## Storage
+
+- Generated images are served at `/generated/[filename]`
+- Images are automatically cleaned up after 24 hours (optional)
+- Maximum storage: 100MB (recommended)

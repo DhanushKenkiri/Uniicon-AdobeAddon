@@ -1,0 +1,51 @@
+{
+  "testId": "uniicon-ai-generator",
+  "name": "Uniicon AI Generator",
+  "version": "1.0.0",
+  "manifestVersion": 2,
+  "requirements": {
+    "apps": [
+      {
+        "name": "Express",
+        "apiVersion": 1
+      }
+    ]
+  },
+  "entryPoints": [
+    {
+      "type": "panel",
+      "id": "panel1",
+      "main": "index.html"
+    }
+  ],
+  "uiEntry": {
+    "type": "panel",
+    "src": "index.html",
+    "height": 640,
+    "width": 420
+  },
+  "permissions": {
+    "webview": {
+      "allow": "yes",
+      "domains": ["*"]
+    },
+    "iframeContent": {
+      "allow": "yes"
+    },
+    "localFileAccess": "no",
+    "launchProcess": {
+      "schemes": ["https"],
+      "allow": "yes"
+    }
+  },
+  "icons": [
+    {
+      "width": 32,
+      "height": 32,
+      "path": "icon.png",
+      "scale": [1, 2],
+      "theme": ["all"],
+      "species": ["generic"]
+    }
+  ]
+}
