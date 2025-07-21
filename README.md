@@ -155,6 +155,10 @@ For technical support or questions about the AI pipeline:
 
 This is a proprietary Adobe Express add-on. All rights reserved.
 
+## Acknowledgement
+
+We acknowledge that the foundational concept and initial codebase for this project were developed during a previous hackathon that occurred within the same timeframe as this current hackathon. However, every single line of code in this Adobe Express Add-on implementation, including the Express SDK integration, UI components, AI pipeline optimization, and platform-specific features, has been written entirely during this hackathon period. The project represents a complete reimagining and rebuild of the original concept, specifically tailored for the Adobe Express ecosystem with new architecture, enhanced functionality, and production-ready implementation.
+
 ---
 
 🚀 **Ready to revolutionize icon creation with AI?** Start generating professional icons with simple text descriptions!
