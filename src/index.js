@@ -6,6 +6,15 @@ console.log("Uniicon Add-on starting...");
 let apiBaseUrl = '';
 let bedrockAvailable = false;
 
+// Tenor API Configuration (will be loaded from server)
+let TENOR_API_KEY = 'AIzaSyC2xRABHfXjo32Er0UToEYQRqUCkxkMk7I'; // Fallback key
+const TENOR_BASE_URL = 'https://tenor.googleapis.com/v2';
+
+// Infinite scroll state
+let currentGifOffset = 0;
+let isLoadingMoreGifs = false;
+let hasMoreGifs = true;
+
 // Environment detection
 if (window.location.hostname === 'localhost') {
     apiBaseUrl = 'http://localhost:3000';
@@ -69,68 +78,64 @@ async function initApp() {
 function createUI() {
     return `
         <div class="uniicon-app">
-            <div class="header">
-                <div class="logo-container">
-                    <div class="logo-icon">🦄</div>
-                    <h1 class="logo-text">Uniicon</h1>
-                </div>
-                <div class="status-badge" id="status-badge">
-                    <div class="status-dot"></div>
-                    <span>Online</span>
-                </div>
+            <!-- Corner decorative circles -->
+            <div class="corner-circle top-left"></div>
+            <div class="corner-circle top-right"></div>
+            <div class="corner-circle bottom-left"></div>
+            <div class="corner-circle bottom-right"></div>
+            
+            <!-- Main title -->
+            <div class="main-title">-UNIICON AI-</div>
+            
+            <!-- Input section -->
+            <div class="input-section">
+                <input 
+                    id="icon-input" 
+                    type="text"
+                    placeholder="Enter your prompt here..."
+                    class="main-input"
+                />
             </div>
-
-            <div class="main-card">
-                <div class="intro-section">
-                    <h2 class="title">AI-Powered Icon Generator</h2>
-                    <p class="description">Generate professional icons using multi-agent AI pipeline</p>
-                </div>                <div class="input-section">
-                    <div class="input-container">
-                        <label class="input-label">Describe your icon</label>
-                        <input 
-                            id="icon-input" 
-                            type="text"
-                            placeholder="A floating hot air balloon with rainbow stripes..."
-                            class="icon-input"
-                        />
+            
+            <!-- Action buttons -->
+            <div class="button-section">
+                <button id="generate-btn" class="action-button generate-button">
+                    GENERATE
+                </button>
+                
+                <button id="marketplace-btn" class="action-button marketplace-button">
+                    MARKETPLACE
+                </button>
+            </div>
+            
+            <!-- Result area (hidden initially) -->
+            <div id="result-area" class="result-area" style="display: none;">
+                <!-- Progress indicator -->
+                <div id="progress-container" class="progress-container" style="display: none;">
+                    <div class="progress-header">
+                        <div class="progress-icon">🎨</div>
+                        <div class="progress-title">Generating Your Icon</div>
                     </div>
-                    
-                    <button id="generate-btn" class="generate-btn">
-                        <span class="btn-icon">✨</span>
-                        <span class="btn-text">Generate Icon</span>
-                    </button>
-                </div>
-
-                <div id="result-area" class="result-area">
-                    <div class="ready-state">
-                        <div class="pipeline-header">
-                            <h3>AI Agent Pipeline + Background Removal</h3>
-                            <p>Specialized agents working together</p>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-steps">
+                        <div class="progress-step" id="step-1">
+                            <div class="step-dot"></div>
                         </div>
-                        <div class="agent-pipeline">
-                            <div class="agent-step">
-                                <div class="agent-icon">🔍</div>
-                                <span>Extract</span>
-                            </div>
-                            <div class="agent-step">
-                                <div class="agent-icon">🧠</div>
-                                <span>Interpret</span>
-                            </div>
-                            <div class="agent-step">
-                                <div class="agent-icon">📋</div>
-                                <span>Plan</span>
-                            </div>
-                            <div class="agent-step">
-                                <div class="agent-icon">🎨</div>
-                                <span>Generate</span>
-                            </div>
-                            <div class="agent-step">
-                                <div class="agent-icon">🧹</div>
-                                <span>Clean</span>
-                            </div>
+                        <div class="progress-step" id="step-2">
+                            <div class="step-dot"></div>
+                        </div>
+                        <div class="progress-step" id="step-3">
+                            <div class="step-dot"></div>
+                        </div>
+                        <div class="progress-step" id="step-4">
+                            <div class="step-dot"></div>
                         </div>
                     </div>
+                    <div class="progress-message" id="progress-message">Starting AI pipeline...</div>
                 </div>
+                <!-- Results will be shown here -->
             </div>
         </div>
     `;
@@ -138,6 +143,7 @@ function createUI() {
 
 function setupEventHandlers() {
     const btn = document.getElementById('generate-btn');
+    const marketplaceBtn = document.getElementById('marketplace-btn');
     const input = document.getElementById('icon-input');
     const result = document.getElementById('result-area');
 
@@ -156,26 +162,20 @@ function setupEventHandlers() {
             }
 
             try {
-                // Update UI to loading state
+                // Show result area and progress
+                result.style.display = 'block';
+                showProgress();
+                
+                // Update button state
                 btn.disabled = true;
-                btn.innerHTML = '<span class="btn-icon">🔄</span><span class="btn-text">Processing...</span>';
-                  result.innerHTML = `
-                    <div class="loading-state">
-                        <div class="loading-title">Generating Your Icon</div>
-                        <div class="loading-description">AI agents are working...</div>
-                        <div class="agent-pipeline active">
-                            <div class="agent-step active">🔍 Extract</div>
-                            <div class="agent-step">🧠 Interpret</div>
-                            <div class="agent-step">📋 Plan</div>
-                            <div class="agent-step">🎨 Generate</div>
-                            <div class="agent-step">🧹 Clean</div>
-                        </div>
-                    </div>
-                `;
-
-                // Call API
-                const response = await callBedrockAPI(description);
-                  if (response.success && response.imageUrl) {
+                btn.textContent = 'GENERATING...';
+                btn.style.background = '#666';
+                
+                // Call API with progress updates
+                const response = await callBedrockAPIWithProgress(description);
+                
+                if (response.success && response.imageUrl) {
+                    hideProgress();
                     const bgStatus = response.backgroundRemoved ? 'Background Removed' : 'Original';
                     result.innerHTML = `
                         <div class="success-state">
@@ -194,11 +194,13 @@ function setupEventHandlers() {
                 
             } catch (error) {
                 console.error('Generation Error:', error);
+                hideProgress();
                 showError(error.message);
             } finally {
                 // Reset button
                 btn.disabled = false;
-                btn.innerHTML = '<span class="btn-icon">✨</span><span class="btn-text">Generate Icon</span>';
+                btn.textContent = 'GENERATE';
+                btn.style.background = '#333';
             }
         });
 
@@ -209,14 +211,22 @@ function setupEventHandlers() {
             }
         });
     }
+
+    // Marketplace button functionality
+    if (marketplaceBtn) {
+        marketplaceBtn.addEventListener('click', () => {
+            showMarketplace();
+        });
+    }
 }
 
 function showError(message) {
     const result = document.getElementById('result-area');
+    result.style.display = 'block';
     result.innerHTML = `
-        <div class="error-state">
-            <div class="error-title">Error</div>
-            <div class="error-message">${message}</div>
+        <div class="loading-state">
+            <div class="loading-title" style="color: #e53e3e;">Error</div>
+            <div class="loading-description">${message}</div>
             <button onclick="checkAPIAvailability()" class="action-btn">Retry</button>
         </div>
     `;
@@ -251,14 +261,605 @@ async function callBedrockAPI(description) {
     }
 }
 
+// Enhanced API call with progress updates
+async function callBedrockAPIWithProgress(description) {
+    try {
+        console.log('Calling Bedrock API with progress tracking for:', description);
+        
+        // Simulate progress steps
+        updateProgress(1, "Analyzing your prompt...");
+        await delay(800);
+        
+        updateProgress(2, "Running AI agent pipeline...");
+        await delay(1000);
+        
+        updateProgress(3, "Generating your icon...");
+        
+        const response = await fetch(`${apiBaseUrl}/api/generate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                description: description,
+                mode: 'enhanced'
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        updateProgress(4, "Applying final enhancements...");
+        await delay(500);
+
+        const result = await response.json();
+        console.log('API Response received:', result);
+        return result;
+        
+    } catch (error) {
+        console.error('API call failed:', error);
+        throw error;
+    }
+}
+
+// Progress management functions
+function showProgress() {
+    const progressContainer = document.getElementById('progress-container');
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        resetProgress();
+    }
+}
+
+function hideProgress() {
+    const progressContainer = document.getElementById('progress-container');
+    if (progressContainer) {
+        progressContainer.style.display = 'none';
+    }
+}
+
+function updateProgress(step, message) {
+    // Update progress bar
+    const progressFill = document.getElementById('progress-fill');
+    const progressMessage = document.getElementById('progress-message');
+    
+    if (progressFill && progressMessage) {
+        const percentage = (step / 4) * 100;
+        progressFill.style.width = `${percentage}%`;
+        progressMessage.textContent = message;
+    }
+    
+    // Update step indicators
+    for (let i = 1; i <= 4; i++) {
+        const stepElement = document.getElementById(`step-${i}`);
+        if (stepElement) {
+            if (i <= step) {
+                stepElement.classList.add('active');
+                if (i < step) {
+                    stepElement.classList.add('completed');
+                }
+            } else {
+                stepElement.classList.remove('active', 'completed');
+            }
+        }
+    }
+}
+
+function resetProgress() {
+    const progressFill = document.getElementById('progress-fill');
+    const progressMessage = document.getElementById('progress-message');
+    
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressMessage) progressMessage.textContent = 'Starting AI pipeline...';
+    
+    // Reset all steps
+    for (let i = 1; i <= 4; i++) {
+        const stepElement = document.getElementById(`step-${i}`);
+        if (stepElement) {
+            stepElement.classList.remove('active', 'completed');
+        }
+    }
+}
+
+// Utility function for delays
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Tenor API functions
+async function searchTenorGifs(query, limit = 12) {
+    try {
+        // Always try to get API key from server first
+        let tenorKey = TENOR_API_KEY;
+        
+        try {
+            const configResponse = await fetch(`${apiBaseUrl}/api/config`);
+            const configResult = await configResponse.json();
+            if (configResult.success && configResult.config.tenorApiKey) {
+                tenorKey = configResult.config.tenorApiKey;
+                console.log('Using Tenor API key from server');
+            }
+        } catch (configError) {
+            console.log('Could not fetch server config, using hardcoded fallback key');
+        }
+
+        if (!tenorKey || tenorKey === 'YOUR_TENOR_API_KEY' || tenorKey === 'PASTE_YOUR_API_KEY_HERE') {
+            console.log('❌ No valid Tenor API key, using placeholder GIFs');
+            return generatePlaceholderGifs(query, limit);
+        }
+
+        console.log('🔍 Searching Tenor for:', query, 'with key:', tenorKey.substring(0, 10) + '...');
+        const response = await fetch(
+            `${TENOR_BASE_URL}/search?q=${encodeURIComponent(query)}&key=${tenorKey}&limit=${limit}&media_filter=gif&content_filter=high`
+        );
+        
+        if (!response.ok) {
+            console.error('Tenor API HTTP error:', response.status, response.statusText);
+            throw new Error(`Tenor API error: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('✅ Tenor API response:', data.results?.length, 'GIFs found');
+        
+        if (!data.results || data.results.length === 0) {
+            console.warn('No GIFs found for query:', query);
+            return generatePlaceholderGifs(query, limit);
+        }
+        
+        return data.results.map(gif => ({
+            id: gif.id,
+            title: gif.content_description || gif.h1_title || `GIF ${gif.id}`,
+            url: gif.media_formats.gif.url,
+            preview: gif.media_formats.tinygif?.url || gif.media_formats.gif.url,
+            dims: gif.media_formats.gif.dims,
+            width: gif.media_formats.gif.dims[0],
+            height: gif.media_formats.gif.dims[1]
+        }));
+    } catch (error) {
+        console.error('❌ Tenor search failed:', error);
+        return generatePlaceholderGifs(query, limit);
+    }
+}
+
+async function getTrendingTenorGifs(limit = 12, offset = 0) {
+    try {
+        // Always try to get API key from server first
+        let tenorKey = TENOR_API_KEY;
+        
+        try {
+            const configResponse = await fetch(`${apiBaseUrl}/api/config`);
+            const configResult = await configResponse.json();
+            if (configResult.success && configResult.config.tenorApiKey) {
+                tenorKey = configResult.config.tenorApiKey;
+                console.log('Using Tenor API key from server for trending');
+            }
+        } catch (configError) {
+            console.log('Could not fetch server config for trending, using fallback');
+        }
+
+        if (!tenorKey || tenorKey === 'YOUR_TENOR_API_KEY' || tenorKey === 'PASTE_YOUR_API_KEY_HERE') {
+            console.log('No valid Tenor API key for trending, using placeholder GIFs');
+            return generatePlaceholderGifs('trending', limit);
+        }
+
+        console.log(`Fetching trending GIFs from Tenor (limit: ${limit}, offset: ${offset})`);
+        
+        // Add pos parameter for pagination (Tenor uses 'pos' for pagination)
+        let url = `${TENOR_BASE_URL}/trending?key=${tenorKey}&limit=${limit}&media_filter=gif&content_filter=high`;
+        if (offset > 0) {
+            url += `&pos=${offset}`;
+        }
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`Tenor API error: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Tenor trending response:', data.results?.length, 'GIFs found');
+        
+        return {
+            gifs: data.results.map(gif => ({
+                id: gif.id,
+                title: gif.content_description || gif.h1_title || `Trending GIF ${gif.id}`,
+                url: gif.media_formats.gif.url,
+                preview: gif.media_formats.tinygif?.url || gif.media_formats.gif.url,
+                dims: gif.media_formats.gif.dims,
+                width: gif.media_formats.gif.dims[0],
+                height: gif.media_formats.gif.dims[1]
+            })),
+            next: data.next || null
+        };
+    } catch (error) {
+        console.error('Tenor trending failed:', error);
+        return {
+            gifs: generatePlaceholderGifs('trending', limit),
+            next: null
+        };
+    }
+}
+
+function generatePlaceholderGifs(query, limit) {
+    // Use simple emoji-based placeholders that always work
+    const placeholders = [
+        { id: '1', title: 'Happy Face', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZGRDcwMCIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+YijwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZGRDcwMCIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+YijwvdGV4dD48L3N2Zz4=' },
+        { id: '2', title: 'Rocket', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzQ4ODVGRiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+agDwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzQ4ODVGRiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+agDwvdGV4dD48L3N2Zz4=' },
+        { id: '3', title: 'Heart', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZGNzA5QSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4p2k77iPPC90ZXh0Pjwvc3ZnPg==', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZGNzA5QSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4p2k77iPPC90ZXh0Pjwvc3ZnPg==' },
+        { id: '4', title: 'Art', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzEwQjk4MSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+OqDwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzEwQjk4MSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+OqDwvdGV4dD48L3N2Zz4=' },
+        { id: '5', title: 'Star', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0Y1OUUwQiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+MnzwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0Y1OUUwQiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+MnzwvdGV4dD48L3N2Zz4=' },
+        { id: '6', title: 'Music', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzgzMzNGRiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+OtTwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzgzMzNGRiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+OtTwvdGV4dD48L3N2Zz4=' },
+        { id: '7', title: 'Fire', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0VGNDQ0NCIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+UpTwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0VGNDQ0NCIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+UpTwvdGV4dD48L3N2Zz4=' },
+        { id: '8', title: 'Sun', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZCQjYyNiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4piA77iPPC90ZXh0Pjwvc3ZnPg==', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZCQjYyNiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4piA77iPPC90ZXh0Pjwvc3ZnPg==' },
+        { id: '9', title: 'Moon', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzM3NDE1RiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPvCfjonwn4+CPCwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iIzM3NDE1RiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZmlsbD0id2hpdGUiPvCfjonwn4+CPCwvdGV4dD48L3N2Zz4=' },
+        { id: '10', title: 'Lightning', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZCQjYyNiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4p6hPC90ZXh0Pjwvc3ZnPg==', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0ZCQjYyNiIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+4p6hPC90ZXh0Pjwvc3ZnPg==' },
+        { id: '11', title: 'Rainbow', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0Y0M0Y1RSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+MiDwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0Y0M0Y1RSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+MiDwvdGV4dD48L3N2Zz4=' },
+        { id: '12', title: 'Unicorn', url: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0Y0M0Y1RSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+mhDwvdGV4dD48L3N2Zz4=', preview: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0MCIgZmlsbD0iI0Y0M0Y1RSIvPjx0ZXh0IHg9IjUwIiB5PSI2MCIgZm9udC1zaXplPSI0MCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+8J+mhDwvdGV4dD48L3N2Zz4=' }
+    ];
+    
+    return placeholders.slice(0, limit);
+}
+
+// Marketplace functionality
+function showMarketplace() {
+    const appContainer = document.getElementById('app');
+    if (!appContainer) return;
+    
+    appContainer.innerHTML = createMarketplaceUI();
+    setupMarketplaceHandlers();
+    
+    // Initialize with UNIICON MARKETPLACE tab active
+    switchMarketplaceTab('uniicon');
+}
+
+function createMarketplaceUI() {
+    return `
+        <div class="marketplace-app">
+            <!-- Corner decorative circles -->
+            <div class="corner-circle top-left"></div>
+            <div class="corner-circle top-right"></div>
+            <div class="corner-circle bottom-left"></div>
+            <div class="corner-circle bottom-right"></div>
+            
+            <!-- Header with back button -->
+            <div class="marketplace-header">
+                <button id="back-btn" class="back-button">← Back to Generator</button>
+                <h2 class="marketplace-title">Browse Icon Collections</h2>
+            </div>
+            
+            <!-- Toggle buttons -->
+            <div class="marketplace-toggle">
+                <button id="uniicon-tab" class="toggle-button active">
+                    PUBLIC ICONS
+                </button>
+                <button id="public-tab" class="toggle-button">
+                    UNIICON CREATIONS
+                </button>
+            </div>
+            
+            <!-- Search section -->
+            <div class="search-section">
+                <div class="search-container">
+                    <input type="text" id="marketplace-search" placeholder="Search icons, styles, themes..." class="search-input">
+                    <div class="search-icon">🔍</div>
+                </div>
+            </div>
+            
+            <!-- Content area -->
+            <div class="marketplace-content">
+                <div id="marketplace-grid" class="marketplace-grid">
+                    <!-- Grid items will be populated here -->
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function setupMarketplaceHandlers() {
+    const backBtn = document.getElementById('back-btn');
+    const uniconTab = document.getElementById('uniicon-tab');
+    const publicTab = document.getElementById('public-tab');
+    
+    if (backBtn) {
+        backBtn.addEventListener('click', () => {
+            // Go back to main app
+            const appContainer = document.getElementById('app');
+            if (appContainer) {
+                appContainer.innerHTML = createUI();
+                setupEventHandlers();
+                checkAPIAvailability();
+            }
+        });
+    }
+    
+    if (uniconTab) {
+        uniconTab.addEventListener('click', () => {
+            switchMarketplaceTab('uniicon');
+        });
+    }
+    
+    if (publicTab) {
+        publicTab.addEventListener('click', () => {
+            switchMarketplaceTab('public');
+        });
+    }
+    
+    // Search functionality
+    const searchInput = document.getElementById('marketplace-search');
+    if (searchInput) {
+        let searchTimeout;
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const query = e.target.value.trim();
+                if (query.length > 2) {
+                    performMarketplaceSearch(query);
+                } else {
+                    // Reset to current tab
+                    const activeTab = document.querySelector('.toggle-button.active');
+                    if (activeTab && activeTab.id === 'uniicon-tab') {
+                        populateUnicoonMarketplace();
+                    } else {
+                        populatePublicMarketplace();
+                    }
+                }
+            }, 500);
+        });
+    }
+    
+    // Infinite scroll for PUBLIC tab only
+    const marketplaceContent = document.querySelector('.marketplace-content');
+    if (marketplaceContent) {
+        marketplaceContent.addEventListener('scroll', () => {
+            const activeTab = document.querySelector('.toggle-button.active');
+            if (activeTab && activeTab.id === 'public-tab') {
+                const scrollTop = marketplaceContent.scrollTop;
+                const scrollHeight = marketplaceContent.scrollHeight;
+                const clientHeight = marketplaceContent.clientHeight;
+                
+                // Load more when user is near bottom (100px from bottom)
+                if (scrollTop + clientHeight >= scrollHeight - 100) {
+                    loadMoreGifs();
+                }
+            }
+        });
+    }
+}
+
+async function performMarketplaceSearch(query) {
+    const grid = document.getElementById('marketplace-grid');
+    if (!grid) return;
+    
+    grid.innerHTML = '<div class="loading-gifs">Searching for "' + query + '"...</div>';
+    
+    try {
+        const gifs = await searchTenorGifs(query, 12);
+        grid.innerHTML = '';
+        
+        if (gifs.length === 0) {
+            grid.innerHTML = '<div class="no-results">No icons found for "' + query + '"</div>';
+            return;
+        }
+        
+        gifs.forEach((gif, index) => {
+            grid.innerHTML += `
+                <div class="gig-card" onclick="selectGif('${gif.url}', '${gif.title}')">
+                    <div class="gig-content">
+                        <img src="${gif.preview}" alt="${gif.title}" class="gig-gif" loading="lazy" />
+                        <div class="gig-text">${gif.title}</div>
+                    </div>
+                </div>
+            `;
+        });
+    } catch (error) {
+        console.error('Search failed:', error);
+        grid.innerHTML = '<div class="error-message">Search failed. Please try again.</div>';
+    }
+}
+
+// Global function for GIF selection
+window.selectGif = function(gifUrl, title) {
+    console.log('Selected GIF:', title, gifUrl);
+    
+    // Show the selected GIF in a modal or result area
+    const resultArea = document.getElementById('result-area');
+    if (resultArea) {
+        resultArea.style.display = 'block';
+        resultArea.innerHTML = `
+            <div class="success-state">
+                <div class="success-title">Icon Selected!</div>
+                <img src="${gifUrl}" alt="${title}" class="generated-image" style="max-width: 200px;" />
+                <div class="image-info">Tenor GIF • ${title}</div>
+                <div class="action-buttons">
+                    <button onclick="copyToClipboard('${gifUrl}')" class="action-btn">Copy</button>
+                    <button onclick="addToCanvas('${gifUrl}')" class="action-btn">Add to Canvas</button>
+                </div>
+            </div>
+        `;
+        
+        // Scroll to result area
+        resultArea.scrollIntoView({ behavior: 'smooth' });
+    }
+    
+    showTemporaryMessage('GIF selected! You can now copy or add to canvas.');
+}
+
+function switchMarketplaceTab(tab) {
+    // Update toggle button states
+    const uniconTab = document.getElementById('uniicon-tab');
+    const publicTab = document.getElementById('public-tab');
+    const marketplaceGrid = document.getElementById('marketplace-grid');
+    
+    if (uniconTab && publicTab && marketplaceGrid) {
+        // Reset button states
+        uniconTab.classList.remove('active');
+        publicTab.classList.remove('active');
+        
+        // Set active button
+        if (tab === 'uniicon') {
+            uniconTab.classList.add('active');
+            populateUnicoonMarketplace();
+        } else {
+            publicTab.classList.add('active');
+            populatePublicMarketplace();
+        }
+    }
+}
+
+function populateUnicoonMarketplace() {
+    const grid = document.getElementById('marketplace-grid');
+    if (!grid) return;
+    
+    console.log('Populating UNIICON marketplace with AI/digital art GIFs...');
+    
+    // Show loading state
+    grid.innerHTML = '<div class="loading-gifs">Loading AI-generated icons...</div>';
+    
+    // Load GIFs for UNIICON creations (AI/digital art themed)
+    searchTenorGifs('digital art animated icons logo design', 12)
+        .then(gifs => {
+            console.log('UNIICON GIFs loaded:', gifs.length);
+            grid.innerHTML = '';
+            gifs.forEach((gif, index) => {
+                const aspectRatio = gif.width && gif.height ? (gif.height / gif.width) : 0.75;
+                const cardHeight = Math.min(Math.max(aspectRatio * 120, 80), 150); // Dynamic height based on aspect ratio
+                
+                grid.innerHTML += `
+                    <div class="gig-card" onclick="selectGif('${gif.url}', '${gif.title}')" style="min-height: ${cardHeight}px;">
+                        <div class="gig-content">
+                            <img src="${gif.preview}" alt="${gif.title}" class="gif-image" 
+                                 style="height: ${cardHeight - 30}px; width: 100%; object-fit: cover;"
+                                 loading="lazy" 
+                                 onerror="this.style.display='none'; console.error('Failed to load GIF:', '${gif.url}')" />
+                            <div class="gig-text" style="height: 25px; overflow: hidden;">${gif.title}</div>
+                        </div>
+                    </div>
+                `;
+            });
+        })
+        .catch(error => {
+            console.error('Failed to load UNIICON gifs:', error);
+            grid.innerHTML = '<div class="error-message">Failed to load AI icons. Check console for details.</div>';
+        });
+}
+
+function populatePublicMarketplace() {
+    const grid = document.getElementById('marketplace-grid');
+    if (!grid) return;
+    
+    console.log('Populating PUBLIC marketplace with real trending GIFs...');
+    
+    // Reset pagination state
+    currentGifOffset = 0;
+    isLoadingMoreGifs = false;
+    hasMoreGifs = true;
+    
+    // Show loading state
+    grid.innerHTML = '<div class="loading-gifs">Loading trending GIFs...</div>';
+    
+    // Load initial batch of trending GIFs
+    loadMoreGifs(true);
+}
+
+async function loadMoreGifs(isInitial = false) {
+    if (isLoadingMoreGifs || !hasMoreGifs) return;
+    
+    const grid = document.getElementById('marketplace-grid');
+    if (!grid) return;
+    
+    isLoadingMoreGifs = true;
+    
+    if (!isInitial) {
+        // Add loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'loading-more';
+        loadingDiv.textContent = 'Loading more GIFs...';
+        grid.appendChild(loadingDiv);
+    }
+    
+    try {
+        const result = await getTrendingTenorGifs(12, currentGifOffset);
+        const gifs = result.gifs;
+        
+        console.log(`Loaded ${gifs.length} GIFs (offset: ${currentGifOffset})`);
+        
+        if (isInitial) {
+            grid.innerHTML = '';
+        } else {
+            // Remove loading indicator
+            const loadingDiv = grid.querySelector('.loading-more');
+            if (loadingDiv) loadingDiv.remove();
+        }
+        
+        gifs.forEach((gif, index) => {
+            const cardWidth = 140; // Fixed width
+            const aspectRatio = gif.width && gif.height ? (gif.height / gif.width) : 0.75;
+            const cardHeight = Math.min(Math.max(aspectRatio * cardWidth, 100), 200);
+            
+            const cardElement = document.createElement('div');
+            cardElement.className = 'gig-card';
+            cardElement.style.minHeight = `${cardHeight}px`;
+            cardElement.onclick = () => selectGif(gif.url, gif.title);
+            
+            cardElement.innerHTML = `
+                <div class="gig-content">
+                    <img src="${gif.preview}" alt="${gif.title}" class="gif-image" 
+                         style="height: ${cardHeight - 5}px; width: 100%; object-fit: cover;"
+                         loading="lazy" 
+                         onerror="this.style.display='none'; console.error('Failed to load GIF:', '${gif.url}')" />
+                </div>
+            `;
+            
+            grid.appendChild(cardElement);
+        });
+        
+        currentGifOffset += gifs.length;
+        
+        // Check if we have more GIFs to load
+        if (gifs.length < 12 || !result.next) {
+            hasMoreGifs = false;
+        }
+        
+    } catch (error) {
+        console.error('Failed to load more gifs:', error);
+        if (isInitial) {
+            grid.innerHTML = '<div class="error-message">Failed to load trending GIFs. Check console for details.</div>';
+        }
+        hasMoreGifs = false;
+    }
+    
+    isLoadingMoreGifs = false;
+}
+
 async function checkAPIAvailability() {
     try {
         console.log('Checking API availability...');
         
+        // Check status
         const response = await fetch(`${apiBaseUrl}/api/status`);
         const result = await response.json();
         
         bedrockAvailable = result.success && result.available;
+        
+        // Load configuration (including Tenor API key)
+        try {
+            console.log('Fetching configuration from server...');
+            const configResponse = await fetch(`${apiBaseUrl}/api/config`);
+            const configResult = await configResponse.json();
+            
+            console.log('Server config response:', configResult);
+            
+            if (configResult.success && configResult.config.tenorApiKey) {
+                TENOR_API_KEY = configResult.config.tenorApiKey;
+                console.log('✅ Tenor API key loaded successfully:', TENOR_API_KEY.substring(0, 10) + '...');
+            } else {
+                console.warn('❌ Tenor API key not available from server - using placeholder GIFs');
+                console.log('Config details:', configResult);
+            }
+        } catch (configError) {
+            console.error('❌ Failed to load configuration:', configError);
+        }
         
         const statusBadge = document.getElementById('status-badge');
         if (statusBadge) {
@@ -358,11 +959,6 @@ function showTemporaryMessage(message) {
 function addStyles() {
     const style = document.createElement('style');
     style.textContent = `
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-
         * {
             margin: 0;
             padding: 0;
@@ -372,243 +968,700 @@ function addStyles() {
         .uniicon-app {
             width: 100%;
             min-height: 100vh;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            padding: 12px;
-            font-size: 14px;
-        }
-
-        .header {
+            background: #f8f8f8;
+            font-family: 'Arial', sans-serif;
             display: flex;
-            justify-content: space-between;
+            flex-direction: column;
             align-items: center;
-            margin-bottom: 16px;
+            position: relative;
+            padding: 60px 20px 40px;
         }
 
-        .logo-container {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .logo-icon {
-            font-size: 24px;
-        }
-
-        .logo-text {
-            font-size: 18px;
-            font-weight: 800;
-            color: white;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-
-        .status-badge {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            color: white;
-        }
-
-        .status-dot {
-            width: 6px;
-            height: 6px;
+        /* Corner decorative circles */
+        .corner-circle {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            border: 2px solid #333;
             border-radius: 50%;
+            background: transparent;
         }
 
-        .status-dot.online {
-            background: #00ff88;
-            box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+        .corner-circle.top-left {
+            top: 30px;
+            left: 30px;
         }
 
-        .status-dot.offline {
-            background: #ff4757;
+        .corner-circle.top-right {
+            top: 30px;
+            right: 30px;
         }
 
-        .main-card {
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        .corner-circle.bottom-left {
+            bottom: 30px;
+            left: 30px;
         }
 
-        .intro-section {
+        .corner-circle.bottom-right {
+            bottom: 30px;
+            right: 30px;
+        }
+
+        /* Main title */
+        .main-title {
+            font-size: 48px;
+            font-weight: bold;
+            color: #333;
             text-align: center;
-            margin-bottom: 20px;
+            margin-bottom: 120px;
+            letter-spacing: 2px;
+            margin-top: 20px;
         }
 
-        .title {
-            font-size: 20px;
-            font-weight: 800;
-            color: #1a202c;
-            margin-bottom: 6px;
-        }
-
-        .description {
-            font-size: 12px;
-            color: #718096;
-        }
-
+        /* Input section */
         .input-section {
-            margin-bottom: 20px;
-        }
-
-        .input-container {
-            margin-bottom: 16px;
-        }
-
-        .input-label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: #4a5568;
-            margin-bottom: 6px;
-        }
-
-        .icon-input {
+            margin-bottom: 40px;
             width: 100%;
-            padding: 12px 16px;
-            border: 2px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 14px;
-            background: white;
-            transition: border-color 0.2s;
+            max-width: 500px;
         }
 
-        .icon-input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .generate-btn {
+        .main-input {
             width: 100%;
-            padding: 12px 24px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-
-        .generate-btn:hover:not(:disabled) {
-            transform: translateY(-1px);
-        }
-
-        .generate-btn:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-        }
-
-        .result-area {
-            min-height: 200px;
-        }
-
-        .ready-state, .loading-state, .success-state, .error-state {
-            text-align: center;
-            padding: 20px;
-        }
-
-        .pipeline-header h3 {
-            font-size: 14px;
-            margin-bottom: 4px;
-            color: #2d3748;
-        }
-
-        .pipeline-header p {
-            font-size: 12px;
-            color: #718096;
-            margin-bottom: 16px;
-        }
-
-        .agent-pipeline {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: 8px;
-            margin: 16px 0;
-        }
-
-        .agent-step {
-            flex: 1;
-            text-align: center;
-            padding: 8px 4px;
-            border-radius: 6px;
-            font-size: 10px;
-            color: #718096;
-            transition: all 0.3s;
-        }
-
-        .agent-step.active {
-            background: #667eea;
-            color: white;
-            transform: scale(1.05);
-        }
-
-        .agent-icon {
+            padding: 20px 25px;
             font-size: 16px;
-            margin-bottom: 4px;
+            border: 3px solid #333;
+            border-radius: 15px;
+            background: #fff;
+            outline: none;
+            text-align: center;
+            font-family: inherit;
+        }
+
+        .main-input::placeholder {
+            color: #666;
+            font-style: italic;
+        }
+
+        .main-input:focus {
+            border-color: #555;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        /* Button section */
+        .button-section {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .action-button {
+            padding: 18px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            border: 3px solid #333;
+            border-radius: 50px;
+            background: #fff;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: inherit;
+        }
+
+        .action-button:hover {
+            background: #333;
+            color: #fff;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .action-button:active {
+            transform: translateY(0);
+        }
+
+        .generate-button {
+            background: #333;
+            color: #fff;
+        }
+
+        .generate-button:hover {
+            background: #555;
+        }
+
+        .marketplace-button {
+            background: #fff;
+            color: #333;
+        }
+
+        /* Result area */
+        .result-area {
+            margin-top: 40px;
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .loading-state {
+            padding: 30px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 15px;
+            margin-top: 20px;
+        }
+
+        .loading-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .success-state {
+            padding: 30px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 15px;
+            margin-top: 20px;
         }
 
         .generated-image {
             max-width: 100%;
-            max-height: 200px;
-            border-radius: 8px;
-            margin: 16px 0;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .image-info {
-            font-size: 10px;
-            color: #718096;
-            margin-bottom: 16px;
+            max-height: 300px;
+            border-radius: 10px;
+            margin: 20px 0;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
         }
 
         .action-buttons {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             justify-content: center;
+            margin-top: 20px;
         }
 
         .action-btn {
-            padding: 8px 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 6px;
-            font-size: 12px;
-            background: white;
+            padding: 10px 20px;
+            font-size: 14px;
+            border: 2px solid #333;
+            border-radius: 25px;
+            background: #fff;
+            color: #333;
             cursor: pointer;
-            transition: all 0.2s;
+            font-weight: bold;
+            transition: all 0.3s ease;
         }
 
         .action-btn:hover {
-            background: #f7fafc;
-            border-color: #cbd5e0;
+            background: #333;
+            color: #fff;
         }
 
-        .loading-title, .success-title, .error-title {
+        /* Progress indicator styles */
+        .progress-container {
+            padding: 30px;
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 15px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .progress-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .progress-icon {
+            font-size: 32px;
+            animation: spin 2s linear infinite;
+            line-height: 1;
+        }
+
+        .progress-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+            line-height: 1;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #f0f0f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 0 auto 25px auto;
+            border: 1px solid #ddd;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #333, #555, #333);
+            background-size: 200% 100%;
+            border-radius: 3px;
+            transition: width 0.8s ease;
+            animation: shimmer 2s linear infinite;
+            width: 0%;
+        }
+
+        .progress-steps {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 25px;
+            gap: 20px;
+            position: relative;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .step-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ddd;
+            border: 2px solid #ddd;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .progress-step.active .step-dot {
+            background: #333;
+            border-color: #333;
+            transform: scale(1.4);
+            box-shadow: 0 0 0 4px rgba(51, 51, 51, 0.2);
+        }
+
+        .progress-step.completed .step-dot {
+            background: #28a745;
+            border-color: #28a745;
+            transform: scale(1.2);
+        }
+
+        .progress-step.completed .step-dot::after {
+            content: '✓';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .progress-message {
+            font-size: 14px;
+            color: #666;
+            font-style: italic;
+            min-height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 5px;
+        }
+
+        /* Animations */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+
+        /* Marketplace styles */
+        .marketplace-app {
+            width: 100%;
+            min-height: 100vh;
+            background: #f8f8f8;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            padding: 20px;
+        }
+
+        .marketplace-header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 25px;
+            text-align: center;
+        }
+
+        .back-button {
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 2px solid #333;
+            border-radius: 25px;
+            background: #fff;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 15px;
+            align-self: flex-start;
+        }
+
+        .back-button:hover {
+            background: #333;
+            color: #fff;
+            transform: translateX(-2px);
+        }
+
+        .marketplace-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin: 0;
+            letter-spacing: 1px;
+        }
+
+        .marketplace-toggle {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+
+        .toggle-button {
+            padding: 12px 25px;
+            font-size: 14px;
+            font-weight: bold;
+            border: 3px solid #333;
+            background: #fff;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .toggle-button:first-child {
+            border-radius: 25px 0 0 25px;
+            border-right: 1.5px solid #333;
+        }
+
+        .toggle-button:last-child {
+            border-radius: 0 25px 25px 0;
+            border-left: 1.5px solid #333;
+        }
+
+        .toggle-button.active {
+            background: #333;
+            color: #fff;
+        }
+
+        .toggle-button:hover:not(.active) {
+            background: #f0f0f0;
+        }
+
+        .search-section {
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .search-container {
+            position: relative;
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 15px 50px 15px 20px;
             font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 8px;
+            border: 3px solid #333;
+            border-radius: 30px;
+            background: #fff;
+            color: #333;
+            outline: none;
+            transition: all 0.3s ease;
         }
 
-        .success-title {
-            color: #38a169;
+        .search-input:focus {
+            border-color: #555;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
 
-        .error-title {
+        .search-input::placeholder {
+            color: #666;
+            font-style: italic;
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 18px;
+            color: #666;
+            pointer-events: none;
+        }
+
+        .marketplace-content {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            overflow-y: auto;
+            max-height: calc(100vh - 180px);
+        }
+
+        .marketplace-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            max-width: 100%;
+            width: 100%;
+            padding: 0 15px;
+            grid-auto-rows: max-content;
+        }
+
+        .gig-card {
+            background: #fff;
+            border: none;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            width: 100%;
+        }
+
+        .gig-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .gig-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            gap: 6px;
+            width: 100%;
+        }
+
+        .gig-emoji {
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .gig-gif {
+            width: 100%;
+            height: 60px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .gif-image {
+            width: 100%;
+            border-radius: 12px;
+            border: none;
+            transition: all 0.2s ease;
+            object-fit: cover;
+            display: block;
+        }
+
+        .gig-card:hover .gif-image {
+            transform: scale(1.02);
+        }
+
+        .gig-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 4px;
+            width: 100%;
+            height: 100%;
+            padding: 0;
+        }
+
+        .loading-more {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .loading-gifs {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+            font-style: italic;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 2px dashed #ddd;
+        }
+
+        .error-message {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 40px 20px;
             color: #e53e3e;
+            background: #fee;
+            border-radius: 12px;
+            border: 2px solid #fecaca;
         }
 
-        .loading-description, .error-message {
-            font-size: 12px;
-            color: #718096;
-            margin-bottom: 16px;
+        .no-results {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+            background: #f8f9fa;
+            border-radius: 12px;
+            border: 2px dashed #ddd;
+        }
+
+        .gig-text {
+            font-size: 11px;
+            font-weight: 600;
+            color: #333;
+            line-height: 1.2;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Responsive design */
+        @media (max-width: 600px) {
+            .main-title {
+                font-size: 32px;
+                margin-bottom: 50px;
+            }
+            
+            .corner-circle {
+                width: 30px;
+                height: 30px;
+            }
+            
+            .corner-circle.top-left,
+            .corner-circle.top-right {
+                top: 20px;
+            }
+            
+            .corner-circle.top-left,
+            .corner-circle.bottom-left {
+                left: 20px;
+            }
+            
+            .corner-circle.top-right,
+            .corner-circle.bottom-right {
+                right: 20px;
+            }
+            
+            .corner-circle.bottom-left,
+            .corner-circle.bottom-right {
+                bottom: 20px;
+            }
+
+            .progress-steps {
+                gap: 15px;
+            }
+            
+            .step-dot {
+                width: 14px;
+                height: 14px;
+            }
+            
+            .progress-step.active .step-dot {
+                transform: scale(1.3);
+            }
+            
+            .progress-step.completed .step-dot {
+                transform: scale(1.15);
+            }
+            
+            .progress-message {
+                font-size: 13px;
+                min-height: 18px;
+            }
+            
+            .progress-container {
+                padding: 20px;
+            }
+
+            /* Marketplace responsive */
+            .marketplace-header {
+                margin-bottom: 20px;
+            }
+            
+            .marketplace-title {
+                font-size: 20px;
+            }
+            
+            .marketplace-toggle {
+                margin-bottom: 15px;
+            }
+            
+            .toggle-button {
+                padding: 10px 18px;
+                font-size: 12px;
+            }
+            
+            .search-section {
+                margin-bottom: 20px;
+            }
+            
+            .search-input {
+                padding: 12px 45px 12px 18px;
+                font-size: 14px;
+            }
+            
+            .search-icon {
+                right: 15px;
+                font-size: 16px;
+            }
+            
+            .marketplace-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                padding: 0 10px;
+            }
+            
+            .gig-card {
+                min-height: 70px;
+                padding: 6px;
+            }
+            
+            .gig-emoji {
+                font-size: 20px;
+            }
+
+            .gig-gif {
+                height: 50px;
+            }
+            
+            .gig-text {
+                font-size: 10px;
+            }
         }
     `;
     document.head.appendChild(style);

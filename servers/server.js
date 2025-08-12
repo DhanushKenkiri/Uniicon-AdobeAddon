@@ -5,6 +5,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,9 +23,12 @@ console.log('Uniicon Server Starting:', {
 
 // Middleware
 app.use(express.json());
-app.use(express.static('../dist'));
-app.use('/assets', express.static('../public'));
-app.use('/generated', express.static('../public/generated'));
+app.use(express.static(path.join(__dirname, '..', 'dist')));
+app.use('/assets', express.static(path.join(__dirname, '..', 'public')));
+app.use('/generated', express.static(path.join(__dirname, '..', 'public', 'generated')));
+
+// Serve dist files explicitly
+app.use('/dist', express.static(path.join(__dirname, '..', 'dist')));
 
 // CORS middleware
 app.use((req, res, next) => {
@@ -183,13 +187,46 @@ app.get('/api/status', async (req, res) => {
     }
 });
 
+// API route for client configuration (includes Tenor API key)
+app.get('/api/config', (req, res) => {
+    try {
+        res.json({
+            success: true,
+            config: {
+                tenorApiKey: process.env.TENOR_API_KEY || null,
+                hasRemoveBg: !!process.env.REMOVEBG_API_KEY,
+                hasAWS: !!(process.env.AWS_ACCESS_KEY_ID || process.env.BEDROCK_ACCESS_KEY_ID)
+            }
+        });
+    } catch (error) {
+        console.error('❌ Config error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 // Serve the app
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+    res.sendFile(path.join(__dirname, '..', 'dist', 'index.html'));
 });
 
 app.listen(PORT, () => {
     console.log(`🚀 Uniicon Adobe Add-on server running on port ${PORT}`);
-    console.log(`📱 Open http://localhost:${PORT} to view the add-on`);
+    console.log(`📱 App available at: http://localhost:${PORT}`);
+    console.log(`🔗 API available at: http://localhost:${PORT}/api/status`);
     console.log(`🤖 Enhanced 4-Agent Bedrock Pipeline ready!`);
+    
+    // Auto-open browser in development
+    if (process.env.NODE_ENV !== 'production') {
+        setTimeout(() => {
+            console.log('🌐 Opening browser...');
+            exec(`start http://localhost:${PORT}`, (error) => {
+                if (error) {
+                    console.log('💡 Manually open: http://localhost:' + PORT);
+                }
+            });
+        }, 1000);
+    }
 });

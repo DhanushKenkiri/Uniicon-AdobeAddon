@@ -10,8 +10,13 @@
         "dev": "npm run build && node servers/server.js",
         "dev:watch": "concurrently \"npm run build -- --watch\" \"node servers/server.js\"",
         "dev:adobe": "ccweb-add-on-scripts start",
+        "start:enhanced": "npm run build && concurrently \"node servers/server.js\" \"ccweb-add-on-scripts start\"",
+        "start:full": "concurrently \"npm run start:enhanced\" \"npm run dev:adobe\"",
+        "start:server": "node servers/server.js",
+        "start:adobe": "ccweb-add-on-scripts start",
         "package": "ccweb-add-on-scripts package",
         "test-bedrock": "node -e \"import('./src/utils/generate.js').then(m => m.default('test icon').then(r => console.log('Bedrock test successful')).catch(e => console.error('Bedrock test failed:', e)))\"",
+        "test-api": "node -e \"fetch('http://localhost:3000/api/status').then(r=>r.json()).then(console.log).catch(console.error)\"",
         "check-config": "node -e \"console.log('Environment check:', { hasAWS: !!process.env.AWS_ACCESS_KEY_ID, hasRemoveBg: !!process.env.REMOVEBG_API_KEY })\""
     },
     "keywords": [
