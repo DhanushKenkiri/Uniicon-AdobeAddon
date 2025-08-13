@@ -10,10 +10,69 @@ let bedrockAvailable = false;
 let TENOR_API_KEY = 'AIzaSyC2xRABHfXjo32Er0UToEYQRqUCkxkMk7I'; // Fallback key
 const TENOR_BASE_URL = 'https://tenor.googleapis.com/v2';
 
-// Infinite scroll state
+// Infinite scroll and lazy loading state
 let currentGifOffset = 0;
 let isLoadingMoreGifs = false;
 let hasMoreGifs = true;
+let lazyImageObserver = null;
+
+// Initialize lazy loading observer
+function initLazyLoading() {
+    if ('IntersectionObserver' in window) {
+        lazyImageObserver = new IntersectionObserver((entries, observer) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    const actualSrc = img.dataset.src;
+                    const placeholder = img.previousElementSibling;
+                    
+                    console.log('Loading image:', actualSrc);
+                    
+                    if (actualSrc) {
+                        // Show the image immediately and set the src
+                        img.style.display = 'block';
+                        img.src = actualSrc;
+                        
+                        img.onload = () => {
+                            img.classList.add('loaded');
+                            if (placeholder && placeholder.classList.contains('gif-placeholder')) {
+                                placeholder.style.display = 'none';
+                            }
+                            console.log('Image loaded successfully:', actualSrc);
+                        };
+                        
+                        img.onerror = () => {
+                            img.style.display = 'none';
+                            if (placeholder) {
+                                placeholder.innerHTML = 'Failed to load';
+                                placeholder.style.color = '#ff6b6b';
+                            }
+                            console.error('Failed to load GIF:', actualSrc);
+                        };
+                        
+                        img.removeAttribute('data-src');
+                        observer.unobserve(img);
+                    }
+                }
+            });
+        }, {
+            rootMargin: '100px 0px', // Start loading 100px before the image enters viewport
+            threshold: 0.01
+        });
+    } else {
+        // Fallback for browsers without IntersectionObserver
+        console.log('IntersectionObserver not supported, loading all images immediately');
+        setTimeout(() => {
+            document.querySelectorAll('.lazy-image').forEach(img => {
+                const actualSrc = img.dataset.src;
+                if (actualSrc) {
+                    img.src = actualSrc;
+                    img.style.display = 'block';
+                }
+            });
+        }, 100);
+    }
+}
 
 // Environment detection
 if (window.location.hostname === 'localhost') {
@@ -391,7 +450,7 @@ async function searchTenorGifs(query, limit = 12) {
 
         console.log('🔍 Searching Tenor for:', query, 'with key:', tenorKey.substring(0, 10) + '...');
         const response = await fetch(
-            `${TENOR_BASE_URL}/search?q=${encodeURIComponent(query)}&key=${tenorKey}&limit=${limit}&media_filter=gif&content_filter=high`
+            `${TENOR_BASE_URL}/search?q=${encodeURIComponent(query)}&key=${tenorKey}&limit=${limit}&media_filter=tinygif,gif&client_key=uniicon_app`
         );
         
         if (!response.ok) {
@@ -407,15 +466,22 @@ async function searchTenorGifs(query, limit = 12) {
             return generatePlaceholderGifs(query, limit);
         }
         
-        return data.results.map(gif => ({
-            id: gif.id,
-            title: gif.content_description || gif.h1_title || `GIF ${gif.id}`,
-            url: gif.media_formats.gif.url,
-            preview: gif.media_formats.tinygif?.url || gif.media_formats.gif.url,
-            dims: gif.media_formats.gif.dims,
-            width: gif.media_formats.gif.dims[0],
-            height: gif.media_formats.gif.dims[1]
-        }));
+        return data.results.map(gif => {
+            // Get the best available image URLs
+            const gifUrl = gif.media_formats?.gif?.url;
+            const previewUrl = gif.media_formats?.tinygif?.url || gif.media_formats?.nanogif?.url || gifUrl;
+            const dims = gif.media_formats?.gif?.dims || gif.media_formats?.tinygif?.dims || [200, 200];
+            
+            return {
+                id: gif.id,
+                title: gif.content_description || gif.title || `Search GIF ${gif.id}`,
+                url: gifUrl,
+                preview: previewUrl,
+                dims: dims,
+                width: dims[0],
+                height: dims[1]
+            };
+        });
     } catch (error) {
         console.error('❌ Tenor search failed:', error);
         return generatePlaceholderGifs(query, limit);
@@ -440,13 +506,13 @@ async function getTrendingTenorGifs(limit = 12, offset = 0) {
 
         if (!tenorKey || tenorKey === 'YOUR_TENOR_API_KEY' || tenorKey === 'PASTE_YOUR_API_KEY_HERE') {
             console.log('No valid Tenor API key for trending, using placeholder GIFs');
-            return generatePlaceholderGifs('trending', limit);
+            return { gifs: generatePlaceholderGifs('trending', limit), next: null };
         }
 
-        console.log(`Fetching trending GIFs from Tenor (limit: ${limit}, offset: ${offset})`);
+        console.log(`🔍 Fetching featured GIFs from Tenor (limit: ${limit}, offset: ${offset})`);
         
-        // Add pos parameter for pagination (Tenor uses 'pos' for pagination)
-        let url = `${TENOR_BASE_URL}/trending?key=${tenorKey}&limit=${limit}&media_filter=gif&content_filter=high`;
+        // Use featured endpoint with pos parameter for pagination
+        let url = `${TENOR_BASE_URL}/featured?key=${tenorKey}&limit=${limit}&media_filter=tinygif,gif&client_key=uniicon_app`;
         if (offset > 0) {
             url += `&pos=${offset}`;
         }
@@ -454,26 +520,41 @@ async function getTrendingTenorGifs(limit = 12, offset = 0) {
         const response = await fetch(url);
         
         if (!response.ok) {
+            console.error('Tenor API HTTP error:', response.status, response.statusText);
             throw new Error(`Tenor API error: ${response.status} ${response.statusText}`);
         }
         
         const data = await response.json();
-        console.log('Tenor trending response:', data.results?.length, 'GIFs found');
+        console.log('✅ Tenor featured response:', data.results?.length, 'GIFs found');
+        
+        if (!data.results || data.results.length === 0) {
+            console.warn('No featured GIFs found');
+            return { gifs: generatePlaceholderGifs('trending', limit), next: null };
+        }
+        
+        const gifs = data.results.map(gif => {
+            // Get the best available image URLs
+            const gifUrl = gif.media_formats?.gif?.url;
+            const previewUrl = gif.media_formats?.tinygif?.url || gif.media_formats?.nanogif?.url || gifUrl;
+            const dims = gif.media_formats?.gif?.dims || gif.media_formats?.tinygif?.dims || [200, 200];
+            
+            return {
+                id: gif.id,
+                title: gif.content_description || gif.title || `Featured GIF ${gif.id}`,
+                url: gifUrl,
+                preview: previewUrl,
+                dims: dims,
+                width: dims[0],
+                height: dims[1]
+            };
+        });
         
         return {
-            gifs: data.results.map(gif => ({
-                id: gif.id,
-                title: gif.content_description || gif.h1_title || `Trending GIF ${gif.id}`,
-                url: gif.media_formats.gif.url,
-                preview: gif.media_formats.tinygif?.url || gif.media_formats.gif.url,
-                dims: gif.media_formats.gif.dims,
-                width: gif.media_formats.gif.dims[0],
-                height: gif.media_formats.gif.dims[1]
-            })),
+            gifs: gifs,
             next: data.next || null
         };
     } catch (error) {
-        console.error('Tenor trending failed:', error);
+        console.error('❌ Tenor featured failed:', error);
         return {
             gifs: generatePlaceholderGifs('trending', limit),
             next: null
@@ -557,6 +638,9 @@ function createMarketplaceUI() {
 }
 
 function setupMarketplaceHandlers() {
+    // Initialize lazy loading
+    initLazyLoading();
+    
     const backBtn = document.getElementById('back-btn');
     const uniconTab = document.getElementById('uniicon-tab');
     const publicTab = document.getElementById('public-tab');
@@ -618,8 +702,8 @@ function setupMarketplaceHandlers() {
                 const scrollHeight = marketplaceContent.scrollHeight;
                 const clientHeight = marketplaceContent.clientHeight;
                 
-                // Load more when user is near bottom (100px from bottom)
-                if (scrollTop + clientHeight >= scrollHeight - 100) {
+                // Load more when user is near bottom (200px from bottom for more responsive loading)
+                if (scrollTop + clientHeight >= scrollHeight - 200) {
                     loadMoreGifs();
                 }
             }
@@ -725,17 +809,22 @@ function populateUnicoonMarketplace() {
                 const aspectRatio = gif.width && gif.height ? (gif.height / gif.width) : 0.75;
                 const cardHeight = Math.min(Math.max(aspectRatio * 120, 80), 150); // Dynamic height based on aspect ratio
                 
-                grid.innerHTML += `
-                    <div class="gig-card" onclick="selectGif('${gif.url}', '${gif.title}')" style="min-height: ${cardHeight}px;">
-                        <div class="gig-content">
-                            <img src="${gif.preview}" alt="${gif.title}" class="gif-image" 
-                                 style="height: ${cardHeight - 30}px; width: 100%; object-fit: cover;"
-                                 loading="lazy" 
-                                 onerror="this.style.display='none'; console.error('Failed to load GIF:', '${gif.url}')" />
-                            <div class="gig-text" style="height: 25px; overflow: hidden;">${gif.title}</div>
-                        </div>
+                const cardElement = document.createElement('div');
+                cardElement.className = 'gig-card';
+                cardElement.style.minHeight = `${cardHeight}px`;
+                cardElement.onclick = () => selectGif(gif.url, gif.title);
+                
+                cardElement.innerHTML = `
+                    <div class="gig-content">
+                        <img src="${gif.preview}" alt="${gif.title}" class="gif-image" 
+                             style="height: ${cardHeight - 30}px; width: 100%; object-fit: cover;"
+                             loading="lazy" 
+                             onerror="this.style.display='none'; console.error('Failed to load GIF:', '${gif.url}')" />
+                        <div class="gig-text" style="height: 25px; overflow: hidden;">${gif.title}</div>
                     </div>
                 `;
+                
+                grid.appendChild(cardElement);
             });
         })
         .catch(error => {
@@ -767,22 +856,25 @@ async function loadMoreGifs(isInitial = false) {
     
     const grid = document.getElementById('marketplace-grid');
     if (!grid) return;
-    
+
     isLoadingMoreGifs = true;
     
     if (!isInitial) {
         // Add loading indicator
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'loading-more';
-        loadingDiv.textContent = 'Loading more GIFs...';
+        loadingDiv.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; gap: 10px; padding: 20px; color: #666;">
+                <div style="width: 20px; height: 20px; border: 2px solid #ddd; border-top: 2px solid #333; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                Loading more GIFs...
+            </div>
+        `;
         grid.appendChild(loadingDiv);
     }
     
     try {
-        const result = await getTrendingTenorGifs(12, currentGifOffset);
-        const gifs = result.gifs;
-        
-        console.log(`Loaded ${gifs.length} GIFs (offset: ${currentGifOffset})`);
+        const result = await getTrendingTenorGifs(20, currentGifOffset); // Increased from 12 to 20
+        const gifs = result.gifs;        console.log(`Loaded ${gifs.length} GIFs (offset: ${currentGifOffset})`);
         
         if (isInitial) {
             grid.innerHTML = '';
@@ -807,7 +899,7 @@ async function loadMoreGifs(isInitial = false) {
                     <img src="${gif.preview}" alt="${gif.title}" class="gif-image" 
                          style="height: ${cardHeight - 5}px; width: 100%; object-fit: cover;"
                          loading="lazy" 
-                         onerror="this.style.display='none'; console.error('Failed to load GIF:', '${gif.url}')" />
+                         onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\\"color:#999;padding:20px;text-align:center;\\">Failed to load</div>'; console.error('Failed to load GIF:', '${gif.url}')" />
                 </div>
             `;
             
@@ -817,7 +909,7 @@ async function loadMoreGifs(isInitial = false) {
         currentGifOffset += gifs.length;
         
         // Check if we have more GIFs to load
-        if (gifs.length < 12 || !result.next) {
+        if (gifs.length < 20 || !result.next) { // Updated to match new batch size
             hasMoreGifs = false;
         }
         
@@ -1480,9 +1572,34 @@ function addStyles() {
             width: 100%;
             border-radius: 12px;
             border: none;
-            transition: all 0.2s ease;
+            transition: all 0.3s ease;
             object-fit: cover;
             display: block;
+            opacity: 0;
+        }
+        
+        .gif-image.loaded {
+            opacity: 1;
+            display: block;
+        }
+        
+        .gif-placeholder {
+            border-radius: 12px;
+            animation: shimmer 2s infinite linear;
+        }
+        
+        @keyframes shimmer {
+            0% { background-position: -200px 0; }
+            100% { background-position: calc(200px + 100%) 0; }
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .lazy-image {
+            transition: opacity 0.3s ease-in-out;
         }
 
         .gig-card:hover .gif-image {
