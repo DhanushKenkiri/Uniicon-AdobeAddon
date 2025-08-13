@@ -244,6 +244,7 @@ function setupEventHandlers() {
                             <div class="action-buttons">
                                 <button onclick="copyToClipboard('${response.imageUrl}')" class="action-btn">Copy</button>
                                 <button onclick="addToCanvas('${response.imageUrl}')" class="action-btn">Add to Canvas</button>
+                                <button onclick="editIcon('${response.imageUrl}', '${description.replace(/'/g, "\\'")}', this)" class="action-btn edit-btn">Edit Icon</button>
                             </div>
                         </div>
                     `;
@@ -1048,6 +1049,155 @@ function showTemporaryMessage(message) {
     }, 3000);
 }
 
+// Edit Icon functionality
+window.editIcon = function(imageUrl, originalPrompt, buttonElement) {
+    const resultArea = document.getElementById('result-area');
+    if (!resultArea) return;
+    
+    // Show edit interface
+    resultArea.innerHTML = `
+        <div class="edit-state">
+            <div class="edit-header">
+                <h3>Edit Your Icon</h3>
+                <p>Describe the changes you want to make to your icon</p>
+            </div>
+            
+            <div class="edit-content">
+                <div class="current-icon">
+                    <img src="${imageUrl}" alt="Current icon" class="current-icon-img" />
+                    <p class="original-prompt">Original: "${originalPrompt}"</p>
+                </div>
+                
+                <div class="edit-controls">
+                    <div class="edit-input-group">
+                        <label for="edit-input">What would you like to change?</label>
+                        <input type="text" id="edit-input" placeholder="e.g., make it more colorful, add a shadow, change to blue..." />
+                    </div>
+                    
+                    <div class="edit-buttons">
+                        <button onclick="applyEdit('${imageUrl}', '${originalPrompt.replace(/'/g, "\\'")}', this)" id="apply-edit-btn" class="action-btn edit-apply-btn">Apply Changes</button>
+                        <button onclick="cancelEdit('${imageUrl}', '${originalPrompt.replace(/'/g, "\\'")}', this)" class="action-btn cancel-btn">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Focus on the edit input
+    setTimeout(() => {
+        const editInput = document.getElementById('edit-input');
+        if (editInput) {
+            editInput.focus();
+            
+            // Add enter key support
+            editInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    const applyBtn = document.getElementById('apply-edit-btn');
+                    if (applyBtn && !applyBtn.disabled) {
+                        applyBtn.click();
+                    }
+                }
+            });
+        }
+    }, 100);
+};
+
+window.applyEdit = async function(originalImageUrl, originalPrompt, buttonElement) {
+    const editInput = document.getElementById('edit-input');
+    const editRequest = editInput?.value.trim();
+    
+    if (!editRequest) {
+        showError('Please describe what you want to change');
+        return;
+    }
+    
+    try {
+        // Disable button
+        buttonElement.disabled = true;
+        buttonElement.textContent = 'Applying Changes...';
+        
+        // Show progress
+        showProgress();
+        updateProgress(1, 'Processing edit request...');
+        
+        // Create enhanced prompt for editing
+        const editPrompt = `EDIT INSTRUCTION: Take the existing icon described as "${originalPrompt}" and apply these specific changes: ${editRequest}. 
+        
+IMPORTANT CONSTRAINTS:
+- Keep the core concept and style of the original icon
+- Only apply the requested changes: ${editRequest}
+- Maintain the same icon format and overall composition
+- Do not completely redesign - only modify as requested
+- Keep the same general size, orientation and icon style
+- Make minimal changes that address only the edit request`;
+        
+        console.log('Edit prompt:', editPrompt);
+        
+        // Call API with edit prompt
+        const response = await callBedrockAPIWithProgress(editPrompt);
+        
+        if (response.success && response.imageUrl) {
+            hideProgress();
+            const bgStatus = response.backgroundRemoved ? 'Background Removed' : 'Original';
+            
+            // Show result with option to edit again
+            const resultArea = document.getElementById('result-area');
+            resultArea.innerHTML = `
+                <div class="success-state">
+                    <div class="success-title">Icon Updated!</div>
+                    <div class="edit-comparison">
+                        <div class="before-after">
+                            <div class="comparison-item">
+                                <img src="${originalImageUrl}" alt="Original icon" class="comparison-image" />
+                                <p>Before</p>
+                            </div>
+                            <div class="comparison-arrow">→</div>
+                            <div class="comparison-item">
+                                <img src="${response.imageUrl}" alt="Edited icon" class="comparison-image generated-image" />
+                                <p>After</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="image-info">AWS Bedrock • AI Edit Applied • ${bgStatus}</div>
+                    <div class="action-buttons">
+                        <button onclick="copyToClipboard('${response.imageUrl}')" class="action-btn">Copy</button>
+                        <button onclick="addToCanvas('${response.imageUrl}')" class="action-btn">Add to Canvas</button>
+                        <button onclick="editIcon('${response.imageUrl}', '${originalPrompt.replace(/'/g, "\\'")}', this)" class="action-btn edit-btn">Edit Again</button>
+                    </div>
+                </div>
+            `;
+        } else {
+            throw new Error(response.message || 'Edit failed');
+        }
+        
+    } catch (error) {
+        console.error('Edit Error:', error);
+        hideProgress();
+        showError('Edit failed: ' + error.message);
+        
+        // Re-enable button
+        buttonElement.disabled = false;
+        buttonElement.textContent = 'Apply Changes';
+    }
+};
+
+window.cancelEdit = function(imageUrl, originalPrompt, buttonElement) {
+    // Return to the original result view
+    const resultArea = document.getElementById('result-area');
+    resultArea.innerHTML = `
+        <div class="success-state">
+            <div class="success-title">Icon Generated!</div>
+            <img src="${imageUrl}" alt="Generated icon" class="generated-image" />
+            <div class="image-info">AWS Bedrock • Multi-Agent AI</div>
+            <div class="action-buttons">
+                <button onclick="copyToClipboard('${imageUrl}')" class="action-btn">Copy</button>
+                <button onclick="addToCanvas('${imageUrl}')" class="action-btn">Add to Canvas</button>
+                <button onclick="editIcon('${imageUrl}', '${originalPrompt.replace(/'/g, "\\'")}', this)" class="action-btn edit-btn">Edit Icon</button>
+            </div>
+        </div>
+    `;
+};
+
 function addStyles() {
     const style = document.createElement('style');
     style.textContent = `
@@ -1249,6 +1399,179 @@ function addStyles() {
         .action-btn:hover {
             background: #333;
             color: #fff;
+        }
+
+        .edit-btn {
+            background: #4CAF50;
+            border-color: #4CAF50;
+            color: white;
+        }
+
+        .edit-btn:hover {
+            background: #45a049;
+            border-color: #45a049;
+        }
+
+        .cancel-btn {
+            background: #f44336;
+            border-color: #f44336;
+            color: white;
+        }
+
+        .cancel-btn:hover {
+            background: #da190b;
+            border-color: #da190b;
+        }
+
+        /* Edit interface styles */
+        .edit-state {
+            background: #fff;
+            border: 2px solid #333;
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .edit-header h3 {
+            color: #333;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .edit-header p {
+            color: #666;
+            margin-bottom: 25px;
+        }
+
+        .edit-content {
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+            align-items: center;
+        }
+
+        .current-icon {
+            text-align: center;
+        }
+
+        .current-icon-img {
+            width: 120px;
+            height: 120px;
+            object-fit: cover;
+            border-radius: 12px;
+            border: 2px solid #ddd;
+            margin-bottom: 10px;
+        }
+
+        .original-prompt {
+            color: #666;
+            font-size: 14px;
+            font-style: italic;
+            max-width: 300px;
+            line-height: 1.4;
+        }
+
+        .edit-controls {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .edit-input-group label {
+            display: block;
+            color: #333;
+            font-weight: bold;
+            margin-bottom: 8px;
+            text-align: left;
+        }
+
+        .edit-input-group input {
+            width: 100%;
+            padding: 15px 20px;
+            font-size: 16px;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            background: #fff;
+            outline: none;
+            font-family: inherit;
+            margin-bottom: 20px;
+        }
+
+        .edit-input-group input:focus {
+            border-color: #4CAF50;
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.2);
+        }
+
+        .edit-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .edit-apply-btn {
+            background: #4CAF50;
+            border-color: #4CAF50;
+            color: white;
+            min-width: 140px;
+        }
+
+        .edit-apply-btn:hover {
+            background: #45a049;
+            border-color: #45a049;
+        }
+
+        .edit-apply-btn:disabled {
+            background: #ccc;
+            border-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        /* Comparison styles */
+        .edit-comparison {
+            margin: 20px 0;
+        }
+
+        .before-after {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .comparison-item {
+            text-align: center;
+        }
+
+        .comparison-image {
+            width: 100px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 12px;
+            border: 2px solid #ddd;
+            margin-bottom: 8px;
+        }
+
+        .comparison-item p {
+            color: #666;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .comparison-arrow {
+            font-size: 24px;
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        @media (max-width: 600px) {
+            .before-after {
+                flex-direction: column;
+            }
+            
+            .comparison-arrow {
+                transform: rotate(90deg);
+            }
         }
 
         /* Progress indicator styles */
