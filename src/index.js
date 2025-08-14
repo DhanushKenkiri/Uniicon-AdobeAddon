@@ -74,14 +74,20 @@ function initLazyLoading() {
     }
 }
 
-// Environment detection
+// Environment detection and API configuration
+const PRODUCTION_SERVER_IP = '3.110.120.9'; // Your EC2 public IP
+
 if (window.location.hostname === 'localhost') {
+    // Local development
     apiBaseUrl = 'http://localhost:3000';
+    console.log('🏠 Development mode: Using local server');
 } else {
-    apiBaseUrl = window.location.origin;
+    // Production - Adobe Express environment, connect to EC2 server
+    apiBaseUrl = `http://${PRODUCTION_SERVER_IP}:3000`;
+    console.log('🚀 Production mode: Using EC2 server');
 }
 
-console.log("API Base URL:", apiBaseUrl);
+console.log("📡 API Base URL:", apiBaseUrl);
 
 // Initialize app when DOM is ready
 if (document.readyState === 'loading') {
@@ -162,8 +168,8 @@ function createUI() {
                     GENERATE
                 </button>
                 
-                <button id="marketplace-btn" class="action-button marketplace-button">
-                    MARKETPLACE
+                <button id="edit-agent-btn" class="action-button agent-button">
+                    EDIT AI AGENT
                 </button>
             </div>
             
@@ -191,6 +197,9 @@ function createUI() {
                         <div class="progress-step" id="step-4">
                             <div class="step-dot"></div>
                         </div>
+                        <div class="progress-step" id="step-5">
+                            <div class="step-dot"></div>
+                        </div>
                     </div>
                     <div class="progress-message" id="progress-message">Starting AI pipeline...</div>
                 </div>
@@ -202,7 +211,7 @@ function createUI() {
 
 function setupEventHandlers() {
     const btn = document.getElementById('generate-btn');
-    const marketplaceBtn = document.getElementById('marketplace-btn');
+    const editAgentBtn = document.getElementById('edit-agent-btn');
     const input = document.getElementById('icon-input');
     const result = document.getElementById('result-area');
 
@@ -272,10 +281,10 @@ function setupEventHandlers() {
         });
     }
 
-    // Marketplace button functionality
-    if (marketplaceBtn) {
-        marketplaceBtn.addEventListener('click', () => {
-            showMarketplace();
+    // Edit AI Agent button functionality
+    if (editAgentBtn) {
+        editAgentBtn.addEventListener('click', () => {
+            openAgentEditor();
         });
     }
 }
@@ -290,6 +299,656 @@ function showError(message) {
             <button onclick="checkAPIAvailability()" class="action-btn">Retry</button>
         </div>
     `;
+}
+
+function openAgentEditor() {
+    // For Adobe Express Add-on environment, show inline editor
+    showAgentEditorInline();
+}
+
+function showAgentEditorInline() {
+    const appContainer = document.getElementById('app');
+    if (!appContainer) return;
+    
+    appContainer.innerHTML = createAgentEditorUI();
+    setupAgentEditorHandlers();
+    loadAgentDataInline();
+}
+
+function createAgentEditorUI() {
+    return `
+        <style>
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        </style>
+        <div class="agent-editor-app" style="height: 100vh; background: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+            <!-- Header -->
+            <div style="padding: 15px 20px; background: #fff; color: #333; display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #333;">
+                <h3 style="margin: 0; font-size: 16px; font-weight: 700;">🤖 AI Agent Editor</h3>
+                <button id="back-to-main" style="background: #fff; color: #333; border: 2px solid #333; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                    ← Back
+                </button>
+            </div>
+            
+            <!-- Content -->
+            <div style="padding: 20px; height: calc(100vh - 70px); overflow-y: auto; background: #fff;">
+                <div style="text-align: center; margin-bottom: 25px;">
+                    <h2 style="color: #333; font-size: 1.8rem; margin-bottom: 8px; font-weight: 800;">Customize AI Agent Instructions</h2>
+                    <p style="color: #666; font-size: 14px; font-weight: 500;">Edit the behavior and instructions for each AI agent in your pipeline</p>
+                </div>
+                
+                <!-- Loading State -->
+                <div id="loading-state" style="text-align: center; padding: 40px; color: #333;">
+                    <div style="font-size: 24px; margin-bottom: 10px;">⏳</div>
+                    <div style="font-weight: 600;">Loading agent configurations...</div>
+                </div>
+                
+                <!-- Agents Grid -->
+                <div id="agents-grid" style="display: none; gap: 20px;">
+                    <!-- Agent cards will be populated here -->
+                </div>
+                
+                <!-- Actions -->
+                <div id="actions-section" style="display: none; text-align: center; margin-top: 30px; padding-top: 20px; border-top: 3px solid #333;">
+                    <button id="save-all-btn" style="background: #333; color: white; border: 3px solid #333; padding: 12px 25px; border-radius: 25px; font-size: 14px; font-weight: 700; cursor: pointer; margin-right: 10px; transition: all 0.2s; text-transform: uppercase;">
+                        💾 Save & Return
+                    </button>
+                    <button id="reset-all-btn" style="background: #fff; color: #333; border: 3px solid #333; padding: 12px 25px; border-radius: 25px; font-size: 14px; font-weight: 700; cursor: pointer; transition: all 0.2s; text-transform: uppercase;">
+                        🔄 Reset All
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Notification -->
+            <div id="notification" style="position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 15px; color: white; font-weight: 600; z-index: 1000; transform: translateX(400px); transition: transform 0.3s; display: none; border: 2px solid #333;">
+                <!-- Notification content -->
+            </div>
+        </div>
+    `;
+}
+
+function setupAgentEditorHandlers() {
+    console.log('Setting up agent editor handlers...');
+    
+    const backBtn = document.getElementById('back-to-main');
+    const saveAllBtn = document.getElementById('save-all-btn');
+    const resetAllBtn = document.getElementById('reset-all-btn');
+    
+    console.log('Found elements:', {
+        backBtn: !!backBtn,
+        saveAllBtn: !!saveAllBtn,
+        resetAllBtn: !!resetAllBtn
+    });
+    
+    if (backBtn) {
+        backBtn.addEventListener('click', () => {
+            console.log('Back button clicked');
+            location.reload(); // Go back to main app
+        });
+        
+        // Hover effects
+        backBtn.addEventListener('mouseenter', () => {
+            backBtn.style.background = '#333';
+            backBtn.style.color = '#fff';
+        });
+        backBtn.addEventListener('mouseleave', () => {
+            backBtn.style.background = '#fff';
+            backBtn.style.color = '#333';
+        });
+    }
+    
+    if (saveAllBtn) {
+        saveAllBtn.addEventListener('click', () => {
+            console.log('Save all button clicked');
+            saveAllAgentsInline();
+        });
+        saveAllBtn.addEventListener('mouseenter', () => {
+            saveAllBtn.style.background = '#fff';
+            saveAllBtn.style.color = '#333';
+        });
+        saveAllBtn.addEventListener('mouseleave', () => {
+            saveAllBtn.style.background = '#333';
+            saveAllBtn.style.color = '#fff';
+        });
+    }
+    
+    if (resetAllBtn) {
+        resetAllBtn.addEventListener('click', () => {
+            console.log('Reset all button clicked');
+            resetAllAgentsInline();
+        });
+        resetAllBtn.addEventListener('mouseenter', () => {
+            resetAllBtn.style.background = '#333';
+            resetAllBtn.style.color = '#fff';
+        });
+        resetAllBtn.addEventListener('mouseleave', () => {
+            resetAllBtn.style.background = '#fff';
+            resetAllBtn.style.color = '#333';
+        });
+    }
+    
+    console.log('Agent editor handlers setup complete');
+}
+
+let agentsDataInline = {};
+let currentUserId = null;
+
+// Generate or get user ID
+function getUserId() {
+    if (currentUserId) return currentUserId;
+    
+    // Try to get from localStorage first
+    let userId = localStorage.getItem('uniicon_user_id');
+    
+    if (!userId) {
+        // Generate new unique user ID
+        userId = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem('uniicon_user_id', userId);
+        console.log('Generated new user ID:', userId);
+    } else {
+        console.log('Found existing user ID:', userId);
+    }
+    
+    currentUserId = userId;
+    return userId;
+}
+// Save user-specific agent instructions
+function saveUserAgentInstructions(userId, agentId, instructions) {
+    const storageKey = `uniicon_agent_${agentId}_${userId}`;
+    localStorage.setItem(storageKey, instructions);
+    console.log(`Saved instructions for agent ${agentId} for user ${userId}`);
+}
+
+// Load user-specific agent instructions
+function loadUserAgentInstructions(userId, agentId, defaultInstructions) {
+    const storageKey = `uniicon_agent_${agentId}_${userId}`;
+    const saved = localStorage.getItem(storageKey);
+    
+    if (saved) {
+        console.log(`Loaded custom instructions for agent ${agentId} for user ${userId}`);
+        return saved;
+    } else {
+        console.log(`Using default instructions for agent ${agentId} for user ${userId}`);
+        return defaultInstructions;
+    }
+}
+
+// Save all user agent instructions to server (future implementation)
+async function syncUserAgentInstructions(userId, agentsData) {
+    try {
+        const response = await fetch(`${apiBaseUrl}/api/users/${userId}/agents`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                agentsData: agentsData,
+                timestamp: Date.now()
+            })
+        });
+        
+        if (response.ok) {
+            console.log('Successfully synced agent instructions to server');
+            return true;
+        } else {
+            console.warn('Failed to sync to server, using local storage only');
+            return false;
+        }
+    } catch (error) {
+        console.warn('Server sync failed, using local storage only:', error.message);
+        return false;
+    }
+}
+
+// Load user agent instructions from server (future implementation)
+async function loadUserAgentInstructionsFromServer(userId) {
+    try {
+        const response = await fetch(`${apiBaseUrl}/api/users/${userId}/agents`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            console.log('Loaded agent instructions from server');
+            return data.agentsData;
+        } else {
+            console.log('No server data found, using local storage');
+            return null;
+        }
+    } catch (error) {
+        console.log('Server load failed, using local storage:', error.message);
+        return null;
+    }
+}
+
+const agentsConfigInline = [
+    {
+        id: 'extract',
+        name: 'Extract Agent',
+        icon: '🔍',
+        description: 'Analyzes user input to extract key requirements, themes, and context for icon generation.',
+        defaultInstructions: `You are an expert icon analyst. Your role is to carefully examine user requests for icon generation and extract key requirements.
+
+TASK: Analyze the user's input and extract:
+1. Core concept or theme
+2. Visual elements needed  
+3. Style preferences (if mentioned)
+4. Emotional tone or mood
+5. Technical requirements
+
+RESPONSE FORMAT: Provide a structured analysis that will help the next agents understand exactly what the user wants.
+
+Be thorough but concise. Focus on actionable insights for icon creation.`
+    },
+    {
+        id: 'interpret',
+        name: 'Interpret Agent', 
+        icon: '👁️',
+        description: 'Analyzes generated images to ensure they meet requirements and provides feedback for improvements.',
+        defaultInstructions: `You are a visual content analyst specializing in icon evaluation. Your role is to analyze generated images and provide constructive feedback.
+
+TASK: When given an icon image and the original prompt, analyze:
+1. Visual accuracy to the request
+2. Icon design principles compliance
+3. Professional quality assessment
+4. Clarity and recognizability
+5. Suggestions for improvements
+
+RESPONSE FORMAT: Provide clear, actionable feedback that can guide further refinements or confirm success.
+
+Focus on elements relevant for animation and Adobe Express integration.`
+    },
+    {
+        id: 'planner',
+        name: 'Planner Agent',
+        icon: '🗺️', 
+        description: 'Creates detailed generation plans and strategies based on extracted requirements.',
+        defaultInstructions: `You are a strategic design planner. Your role is to create comprehensive generation plans for icon creation.
+
+TASK: Based on extracted requirements, create a detailed plan including:
+1. Visual composition and layout strategy
+2. Color palette and style direction
+3. Key elements positioning and hierarchy  
+4. Technical specifications for optimal results
+5. Quality enhancement guidelines
+
+RESPONSE FORMAT: Provide a detailed generation plan that serves as a blueprint for the image generation process.
+
+Ensure the plan is specific, actionable, and optimized for AI image generation.`
+    },
+    {
+        id: 'generate',
+        name: 'Generate Agent',
+        icon: '🎨',
+        description: 'Creates the actual icon images using advanced AI image generation models.',
+        defaultInstructions: `You are an AI image generation specialist. Your role is to create high-quality icons based on detailed plans.
+
+TASK: Generate professional icons that:
+1. Follow the provided generation plan precisely
+2. Maintain consistent style and quality
+3. Optimize for icon use cases (clarity, scalability)
+4. Ensure professional appearance
+5. Meet technical requirements
+
+RESPONSE FORMAT: Focus on creating visually appealing, professional icons that match the specified requirements.
+
+Prioritize clarity, recognizability, and aesthetic appeal suitable for Adobe Express integration.`
+    }
+];
+
+async function loadAgentDataInline() {
+    try {
+        const userId = getUserId();
+        console.log('Loading agent data for user:', userId);
+        
+        // Try to load from server first (future feature)
+        const serverData = await loadUserAgentInstructionsFromServer(userId);
+        
+        // Hide loading, show content
+        setTimeout(() => {
+            document.getElementById('loading-state').style.display = 'none';
+            
+            // Initialize agent data with user-specific instructions
+            for (const agent of agentsConfigInline) {
+                let customInstructions;
+                
+                if (serverData && serverData[agent.id]) {
+                    // Use server data if available
+                    customInstructions = serverData[agent.id].currentInstructions;
+                    console.log(`Using server instructions for ${agent.name}`);
+                } else {
+                    // Use local storage data
+                    customInstructions = loadUserAgentInstructions(userId, agent.id, agent.defaultInstructions);
+                }
+                
+                agentsDataInline[agent.id] = {
+                    ...agent,
+                    currentInstructions: customInstructions,
+                    status: 'active',
+                    userId: userId,
+                    lastModified: Date.now()
+                };
+            }
+            
+            console.log('Loaded agent data:', Object.keys(agentsDataInline));
+            renderAgentsInline();
+            document.getElementById('agents-grid').style.display = 'block';
+            document.getElementById('actions-section').style.display = 'block';
+        }, 500);
+        
+    } catch (error) {
+        console.error('Error loading agent data:', error);
+        showNotificationInline('Failed to load agent configurations', 'error');
+    }
+}
+
+function renderAgentsInline() {
+    const grid = document.getElementById('agents-grid');
+    if (!grid) return;
+    
+    grid.innerHTML = '';
+    
+    for (const agentId in agentsDataInline) {
+        const agent = agentsDataInline[agentId];
+        const card = document.createElement('div');
+        card.style.cssText = `
+            background: #fff;
+            border: 3px solid #333;
+            border-radius: 20px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            position: relative;
+        `;
+        
+        card.innerHTML = `
+            <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                <div style="font-size: 1.5rem; margin-right: 12px;">${agent.icon}</div>
+                <div>
+                    <div style="font-size: 1.3rem; font-weight: 800; color: #333;">${agent.name}</div>
+                    <div style="display: flex; align-items: center; margin-top: 4px;">
+                        <div style="width: 8px; height: 8px; border-radius: 50%; background-color: #333; margin-right: 6px;"></div>
+                        <span style="font-size: 12px; color: #333; font-weight: 600;">Active</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="color: #333; margin-bottom: 15px; font-size: 14px; line-height: 1.5; font-weight: 500;">${agent.description}</div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; font-weight: 700; margin-bottom: 6px; color: #333; font-size: 13px;">Instructions</label>
+                <textarea 
+                    id="instructions-${agentId}"
+                    style="width: 100%; min-height: 120px; padding: 12px; border: 3px solid #333; border-radius: 15px; font-size: 13px; font-family: inherit; resize: vertical; line-height: 1.4; background: #fff;"
+                    placeholder="Enter agent instructions..."
+                >${agent.currentInstructions}</textarea>
+                <div style="font-size: 11px; color: #333; margin-top: 4px; font-weight: 600;">
+                    <span id="char-count-${agentId}">0</span> characters (minimum 100 required)
+                </div>
+            </div>
+            
+            <button 
+                id="update-${agentId}"
+                style="background: #333; color: white; border: 3px solid #333; padding: 12px 15px; border-radius: 20px; font-size: 13px; font-weight: 700; cursor: pointer; width: 100%; transition: all 0.2s; text-transform: uppercase;">
+                Update Agent
+            </button>
+        `;
+        
+        grid.appendChild(card);
+        
+        // Add event listeners
+        const textarea = card.querySelector(`#instructions-${agentId}`);
+        const updateBtn = card.querySelector(`#update-${agentId}`);
+        const charCount = card.querySelector(`#char-count-${agentId}`);
+        
+        if (textarea && charCount) {
+            // Update character count
+            const updateCharCount = () => {
+                const count = textarea.value.length;
+                charCount.textContent = count;
+                charCount.style.color = '#333';
+                charCount.style.fontWeight = count >= 100 ? '700' : '600';
+                
+                agentsDataInline[agentId].currentInstructions = textarea.value;
+            };
+            
+            textarea.addEventListener('input', updateCharCount);
+            updateCharCount(); // Initial count
+            
+            textarea.addEventListener('focus', () => {
+                textarea.style.borderColor = '#333';
+                textarea.style.borderWidth = '3px';
+            });
+            textarea.addEventListener('blur', () => {
+                textarea.style.borderColor = '#333';
+                textarea.style.borderWidth = '3px';
+                
+                // Auto-save user-specific instructions when textarea loses focus
+                const userId = getUserId();
+                const instructions = textarea.value;
+                saveUserAgentInstructions(userId, agentId, instructions);
+                console.log(`Auto-saved instructions for ${agentId} for user ${userId}`);
+            });
+        }
+        
+        if (updateBtn) {
+            updateBtn.addEventListener('click', () => updateAgentInline(agentId));
+            updateBtn.addEventListener('mouseenter', () => {
+                updateBtn.style.background = '#fff';
+                updateBtn.style.color = '#333';
+            });
+            updateBtn.addEventListener('mouseleave', () => {
+                updateBtn.style.background = '#333';
+                updateBtn.style.color = '#fff';
+            });
+        }
+        
+        // Card hover effect
+        card.addEventListener('mouseenter', () => {
+            card.style.transform = 'translateY(-3px)';
+            card.style.boxShadow = '0 8px 25px rgba(0,0,0,0.15)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.transform = 'translateY(0)';
+            card.style.boxShadow = 'none';
+        });
+    }
+}
+
+async function updateAgentInline(agentId) {
+    const btn = document.getElementById(`update-${agentId}`);
+    const textarea = document.getElementById(`instructions-${agentId}`);
+    
+    if (!btn || !textarea) {
+        console.error('Button or textarea not found for agent:', agentId);
+        return;
+    }
+    
+    const instructions = textarea.value.trim();
+    
+    // Validate
+    if (instructions.length < 100) {
+        showNotificationInline('Instructions must be at least 100 characters long', 'error');
+        return;
+    }
+    
+    const originalText = btn.textContent;
+    const originalBackground = btn.style.background;
+    const originalColor = btn.style.color;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<div style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 6px;"></div>Updating...';
+        
+        console.log(`Updating ${agentsDataInline[agentId].name}...`);
+        
+        // Update the agent data
+        agentsDataInline[agentId].currentInstructions = instructions;
+        
+        // Simulate API call
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        showNotificationInline(`${agentsDataInline[agentId].name} updated successfully!`, 'success');
+        console.log(`${agentsDataInline[agentId].name} updated successfully`);
+        
+    } catch (error) {
+        console.error('Error updating agent:', error);
+        showNotificationInline(`Failed to update ${agentsDataInline[agentId].name}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        btn.style.background = originalBackground;
+        btn.style.color = originalColor;
+    }
+}
+
+async function saveAllAgentsInline() {
+    const btn = document.getElementById('save-all-btn');
+    if (!btn) {
+        console.error('Save all button not found');
+        return;
+    }
+    
+    // Validate all agents
+    for (const agentId in agentsDataInline) {
+        const instructions = agentsDataInline[agentId].currentInstructions.trim();
+        if (instructions.length < 100) {
+            showNotificationInline(`${agentsDataInline[agentId].name} instructions are too short (minimum 100 characters)`, 'error');
+            return;
+        }
+    }
+    
+    const originalText = btn.textContent;
+    const originalBackground = btn.style.background;
+    const originalColor = btn.style.color;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<div style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,0.3); border-top: 2px solid white; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 6px;"></div>Saving All...';
+        
+        console.log('Saving all agents...');
+        
+        const userId = getUserId();
+        console.log('Saving agents for user:', userId);
+        
+        // Save each agent's instructions to user-specific storage
+        for (const agentId in agentsDataInline) {
+            const instructions = agentsDataInline[agentId].currentInstructions;
+            saveUserAgentInstructions(userId, agentId, instructions);
+            console.log(`Saved instructions for ${agentId}`);
+        }
+        
+        // Try to sync with server (optional - won't block if it fails)
+        try {
+            await syncUserAgentInstructions(userId, agentsDataInline);
+        } catch (error) {
+            console.log('Server sync failed but local save succeeded:', error.message);
+        }
+        
+        // Simulate API calls for UI feedback
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        showNotificationInline('All agent configurations saved successfully!', 'success');
+        console.log('All agents saved successfully');
+        
+        // Return to main app after a delay
+        setTimeout(() => {
+            console.log('Returning to main app...');
+            location.reload();
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Error saving agents:', error);
+        showNotificationInline('Failed to save agent configurations', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        btn.style.background = originalBackground;
+        btn.style.color = originalColor;
+    }
+}
+
+async function resetAllAgentsInline() {
+    if (!confirm('Are you sure you want to reset all agents to their default instructions? This cannot be undone.')) {
+        return;
+    }
+    
+    const btn = document.getElementById('reset-all-btn');
+    if (!btn) {
+        console.error('Reset button not found');
+        return;
+    }
+    
+    const originalText = btn.textContent;
+    const originalBackground = btn.style.background;
+    const originalColor = btn.style.color;
+    
+    try {
+        btn.disabled = true;
+        btn.innerHTML = '<div style="display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(51,51,51,0.3); border-top: 2px solid #333; border-radius: 50%; animation: spin 1s linear infinite; margin-right: 6px;"></div>Resetting...';
+        btn.style.background = '#fff';
+        btn.style.color = '#333';
+        
+        console.log('Resetting agents to default instructions...');
+        
+        const userId = getUserId();
+        console.log('Resetting agents for user:', userId);
+        
+        // Reset to default instructions and clear user storage
+        for (const agent of agentsConfigInline) {
+            if (agentsDataInline[agent.id]) {
+                agentsDataInline[agent.id].currentInstructions = agent.defaultInstructions;
+                // Clear user-specific storage by saving default instructions
+                saveUserAgentInstructions(userId, agent.id, agent.defaultInstructions);
+                console.log(`Reset ${agent.name} to default instructions`);
+            }
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Re-render the agents with updated data
+        renderAgentsInline();
+        showNotificationInline('All agents reset to default instructions', 'success');
+        
+        console.log('Reset completed successfully');
+        
+    } catch (error) {
+        console.error('Error resetting agents:', error);
+        showNotificationInline('Failed to reset agent configurations', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        btn.style.background = originalBackground;
+        btn.style.color = originalColor;
+    }
+}
+
+function showNotificationInline(message, type) {
+    const notification = document.getElementById('notification');
+    if (!notification) return;
+    
+    notification.textContent = message;
+    if (type === 'success') {
+        notification.style.background = '#333';
+        notification.style.color = '#fff';
+    } else {
+        notification.style.background = '#fff';
+        notification.style.color = '#333';
+        notification.style.border = '2px solid #333';
+    }
+    notification.style.display = 'block';
+    
+    // Show notification
+    setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+    }, 100);
+    
+    // Hide notification after 4 seconds
+    setTimeout(() => {
+        notification.style.transform = 'translateX(400px)';
+        setTimeout(() => {
+            notification.style.display = 'none';
+        }, 300);
+    }, 4000);
 }
 
 async function callBedrockAPI(description) {
@@ -324,16 +983,26 @@ async function callBedrockAPI(description) {
 // Enhanced API call with progress updates
 async function callBedrockAPIWithProgress(description) {
     try {
-        console.log('Calling Bedrock API with progress tracking for:', description);
+        console.log('Calling Bedrock API with 5-agent pipeline for:', description);
         
-        // Simulate progress steps
-        updateProgress(1, "Analyzing your prompt...");
+        // Step 1: Extract Agent
+        updateProgress(1, "Extracting requirements...");
         await delay(800);
         
-        updateProgress(2, "Running AI agent pipeline...");
+        // Step 2: Planner Agent  
+        updateProgress(2, "Planning generation strategy...");
         await delay(1000);
         
+        // Step 3: Generate Agent
         updateProgress(3, "Generating your icon...");
+        await delay(1200);
+        
+        // Step 4: Interpret Agent
+        updateProgress(4, "Analyzing generated image...");
+        await delay(800);
+        
+        // Step 5: RemoveBG Agent
+        updateProgress(5, "Applying background removal...");
         
         const response = await fetch(`${apiBaseUrl}/api/generate`, {
             method: 'POST',
@@ -350,25 +1019,22 @@ async function callBedrockAPIWithProgress(description) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        updateProgress(4, "Applying final enhancements...");
-        await delay(500);
-
         const result = await response.json();
-        console.log('API Response received:', result);
+        console.log('5-Agent Pipeline completed:', result);
         return result;
         
     } catch (error) {
-        console.error('API call failed:', error);
+        console.error('Pipeline failed:', error);
         throw error;
     }
 }
 
 // Progress management functions
-function showProgress() {
+function showProgress(totalSteps = 5) {
     const progressContainer = document.getElementById('progress-container');
     if (progressContainer) {
         progressContainer.style.display = 'block';
-        resetProgress();
+        resetProgress(totalSteps);
     }
 }
 
@@ -379,45 +1045,63 @@ function hideProgress() {
     }
 }
 
-function updateProgress(step, message) {
+function updateProgress(step, message, totalSteps = 5) {
     // Update progress bar
     const progressFill = document.getElementById('progress-fill');
     const progressMessage = document.getElementById('progress-message');
     
     if (progressFill && progressMessage) {
-        const percentage = (step / 4) * 100;
+        const percentage = (step / totalSteps) * 100;
         progressFill.style.width = `${percentage}%`;
         progressMessage.textContent = message;
     }
     
-    // Update step indicators
-    for (let i = 1; i <= 4; i++) {
+    // Update step indicators (show only relevant steps)
+    for (let i = 1; i <= 5; i++) {
         const stepElement = document.getElementById(`step-${i}`);
         if (stepElement) {
-            if (i <= step) {
-                stepElement.classList.add('active');
-                if (i < step) {
-                    stepElement.classList.add('completed');
+            if (i <= totalSteps) {
+                stepElement.style.display = 'block';
+                if (i <= step) {
+                    stepElement.classList.add('active');
+                    if (i < step) {
+                        stepElement.classList.add('completed');
+                    }
+                } else {
+                    stepElement.classList.remove('active', 'completed');
                 }
             } else {
-                stepElement.classList.remove('active', 'completed');
+                stepElement.style.display = 'none';
             }
         }
     }
 }
 
-function resetProgress() {
+function resetProgress(totalSteps = 5) {
     const progressFill = document.getElementById('progress-fill');
     const progressMessage = document.getElementById('progress-message');
     
     if (progressFill) progressFill.style.width = '0%';
-    if (progressMessage) progressMessage.textContent = 'Starting AI pipeline...';
     
-    // Reset all steps
-    for (let i = 1; i <= 4; i++) {
+    // Set appropriate message based on pipeline type
+    if (progressMessage) {
+        if (totalSteps === 3) {
+            progressMessage.textContent = 'Starting 3-Agent Edit pipeline...';
+        } else {
+            progressMessage.textContent = 'Starting 5-Agent AI pipeline...';
+        }
+    }
+    
+    // Reset all steps and show only relevant ones
+    for (let i = 1; i <= 5; i++) {
         const stepElement = document.getElementById(`step-${i}`);
         if (stepElement) {
             stepElement.classList.remove('active', 'completed');
+            if (i <= totalSteps) {
+                stepElement.style.display = 'block';
+            } else {
+                stepElement.style.display = 'none';
+            }
         }
     }
 }
@@ -1071,7 +1755,31 @@ window.editIcon = function(imageUrl, originalPrompt, buttonElement) {
                 <div class="edit-controls">
                     <div class="edit-input-group">
                         <label for="edit-input">What would you like to change?</label>
-                        <input type="text" id="edit-input" placeholder="e.g., make it more colorful, add a shadow, change to blue..." />
+                        <input type="text" id="edit-input" placeholder="e.g., remove one heart, change only the background to blue, add a small shadow..." />
+                        <div class="edit-tips">
+                            <p><strong>💡 Editing Tips:</strong> Be specific for precise changes!</p>
+                            <div class="tip-examples">
+                                <div class="good-examples">
+                                    <p><strong>✅ Good examples:</strong></p>
+                                    <ul>
+                                        <li>"remove the small star on the top right"</li>
+                                        <li>"change the heart color from red to pink"</li>
+                                        <li>"add a thin black border around the icon"</li>
+                                        <li>"make the text 20% larger"</li>
+                                        <li>"remove one of the three flowers"</li>
+                                    </ul>
+                                </div>
+                                <div class="bad-examples">
+                                    <p><strong>❌ Avoid vague requests:</strong></p>
+                                    <ul>
+                                        <li>"make it better" → too vague</li>
+                                        <li>"improve the design" → unclear what to change</li>
+                                        <li>"make it cooler" → subjective</li>
+                                        <li>"fix it" → what needs fixing?</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="edit-buttons">
@@ -1111,40 +1819,74 @@ window.applyEdit = async function(originalImageUrl, originalPrompt, buttonElemen
         return;
     }
     
+    // Validate edit request for specificity
+    const vaguePhrases = ['better', 'nicer', 'cooler', 'improve', 'enhance', 'make it good', 'fix it'];
+    const isVague = vaguePhrases.some(phrase => editRequest.toLowerCase().includes(phrase));
+    
+    if (isVague) {
+        showError('Please be more specific! Instead of "make it better", try "change the color to blue" or "remove the small heart"');
+        return;
+    }
+    
+    if (editRequest.length < 10) {
+        showError('Please provide more details about what you want to change');
+        return;
+    }
+    
     try {
         // Disable button
         buttonElement.disabled = true;
-        buttonElement.textContent = 'Applying Changes...';
+        buttonElement.textContent = 'Processing Edit...';
         
-        // Show progress
-        showProgress();
-        updateProgress(1, 'Processing edit request...');
+        // Show progress for 3-agent edit pipeline
+        showProgress(3);
+        updateProgress(1, 'Interpreting edit request...', 3);
+        await delay(800);
         
-        // Create enhanced prompt for editing
-        const editPrompt = `EDIT INSTRUCTION: Take the existing icon described as "${originalPrompt}" and apply these specific changes: ${editRequest}. 
+        updateProgress(2, 'Generating edited image...', 3);
+        await delay(1000);
         
-IMPORTANT CONSTRAINTS:
-- Keep the core concept and style of the original icon
-- Only apply the requested changes: ${editRequest}
-- Maintain the same icon format and overall composition
-- Do not completely redesign - only modify as requested
-- Keep the same general size, orientation and icon style
-- Make minimal changes that address only the edit request`;
+        updateProgress(3, 'Applying background removal...', 3);
         
-        console.log('Edit prompt:', editPrompt);
+        console.log('Starting 3-Agent Edit Pipeline:', {
+            editRequest,
+            originalPrompt,
+            originalImageUrl
+        });
         
-        // Call API with edit prompt
-        const response = await callBedrockAPIWithProgress(editPrompt);
+        // Call the new edit API endpoint
+        const response = await fetch(`${apiBaseUrl}/api/edit`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                editRequest: editRequest,
+                originalImageUrl: originalImageUrl,
+                originalDescription: originalPrompt
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('3-Agent Edit Pipeline completed:', result);
         
-        if (response.success && response.imageUrl) {
+        if (result.success && result.imageUrl) {
             hideProgress();
-            const bgStatus = response.backgroundRemoved ? 'Background Removed' : 'Original';
+            const bgStatus = result.backgroundRemoved ? 'Background Removed' : 'Original';
             
             // Show result with option to edit again
             const resultArea = document.getElementById('result-area');
             resultArea.innerHTML = `
                 <div class="success-state">
-                    <div class="success-title">Icon Updated!</div>
+                    <div class="success-title">Icon Edited!</div>
+                    <div class="pipeline-info">
+                        <div class="pipeline-badge">🔧 3-Agent Edit Pipeline</div>
+                        <div class="pipeline-steps">Interpret → Generate → RemoveBG</div>
+                    </div>
                     <div class="edit-comparison">
                         <div class="before-after">
                             <div class="comparison-item">
@@ -1153,25 +1895,28 @@ IMPORTANT CONSTRAINTS:
                             </div>
                             <div class="comparison-arrow">→</div>
                             <div class="comparison-item">
-                                <img src="${response.imageUrl}" alt="Edited icon" class="comparison-image generated-image" />
+                                <img src="${result.imageUrl}" alt="Edited icon" class="comparison-image generated-image" />
                                 <p>After</p>
                             </div>
                         </div>
+                        <div class="edit-details">
+                            <p><strong>Edit Applied:</strong> ${editRequest}</p>
+                        </div>
                     </div>
-                    <div class="image-info">AWS Bedrock • AI Edit Applied • ${bgStatus}</div>
+                    <div class="image-info">AWS Bedrock • 3-Agent Edit Pipeline • ${bgStatus}</div>
                     <div class="action-buttons">
-                        <button onclick="copyToClipboard('${response.imageUrl}')" class="action-btn">Copy</button>
-                        <button onclick="addToCanvas('${response.imageUrl}')" class="action-btn">Add to Canvas</button>
-                        <button onclick="editIcon('${response.imageUrl}', '${originalPrompt.replace(/'/g, "\\'")}', this)" class="action-btn edit-btn">Edit Again</button>
+                        <button onclick="copyToClipboard('${result.imageUrl}')" class="action-btn">Copy</button>
+                        <button onclick="addToCanvas('${result.imageUrl}')" class="action-btn">Add to Canvas</button>
+                        <button onclick="editIcon('${result.imageUrl}', '${originalPrompt.replace(/'/g, "\\'")}', this)" class="action-btn edit-btn">Edit Again</button>
                     </div>
                 </div>
             `;
         } else {
-            throw new Error(response.message || 'Edit failed');
+            throw new Error(result.message || 'Edit failed');
         }
         
     } catch (error) {
-        console.error('Edit Error:', error);
+        console.error('3-Agent Edit Pipeline Error:', error);
         hideProgress();
         showError('Edit failed: ' + error.message);
         
@@ -1333,9 +2078,15 @@ function addStyles() {
             background: #555;
         }
 
-        .marketplace-button {
-            background: #fff;
-            color: #333;
+        .agent-button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: #fff;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .agent-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
         }
 
         /* Result area */
@@ -1502,6 +2253,73 @@ function addStyles() {
             box-shadow: 0 0 8px rgba(76, 175, 80, 0.2);
         }
 
+        .edit-tips {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 10px;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        .edit-tips p {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        .edit-tips ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #666;
+        }
+
+        .edit-tips li {
+            margin-bottom: 5px;
+            font-style: italic;
+        }
+
+        .tip-examples {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .good-examples p {
+            color: #2e7d32;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .bad-examples p {
+            color: #d32f2f;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .good-examples ul {
+            border-left: 3px solid #4caf50;
+            padding-left: 15px;
+            background: #e8f5e8;
+            padding: 10px 10px 10px 15px;
+            border-radius: 4px;
+        }
+
+        .bad-examples ul {
+            border-left: 3px solid #f44336;
+            padding-left: 15px;
+            background: #ffeaea;
+            padding: 10px 10px 10px 15px;
+            border-radius: 4px;
+        }
+
+        @media (max-width: 600px) {
+            .tip-examples {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .edit-buttons {
             display: flex;
             gap: 10px;
@@ -1562,6 +2380,44 @@ function addStyles() {
             font-size: 24px;
             color: #4CAF50;
             font-weight: bold;
+        }
+
+        /* Pipeline information styles */
+        .pipeline-info {
+            margin: 15px 0;
+            text-align: center;
+        }
+
+        .pipeline-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .pipeline-steps {
+            color: #666;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+
+        .edit-details {
+            margin-top: 15px;
+            padding: 12px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border-left: 3px solid #667eea;
+        }
+
+        .edit-details p {
+            color: #555;
+            font-size: 13px;
+            margin: 0;
         }
 
         @media (max-width: 600px) {

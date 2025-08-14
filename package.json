@@ -15,8 +15,13 @@
         "start:server": "node servers/server.js",
         "start:adobe": "ccweb-add-on-scripts start",
         "package": "ccweb-add-on-scripts package",
+        "deploy:production": "NODE_ENV=production node servers/server.js",
+        "docker:build": "docker build -t uniicon-server .",
+        "docker:run": "docker run -p 3000:3000 --env-file .env uniicon-server",
+        "docker:compose": "docker-compose up -d",
         "test-bedrock": "node -e \"import('./src/utils/generate.js').then(m => m.default('test icon').then(r => console.log('Bedrock test successful')).catch(e => console.error('Bedrock test failed:', e)))\"",
         "test-api": "node -e \"fetch('http://localhost:3000/api/status').then(r=>r.json()).then(console.log).catch(console.error)\"",
+        "test-health": "curl -f http://localhost:3000/api/health || node -e \"fetch('http://localhost:3000/api/health').then(r=>r.json()).then(console.log).catch(console.error)\"",
         "check-config": "node -e \"console.log('Environment check:', { hasAWS: !!process.env.AWS_ACCESS_KEY_ID, hasRemoveBg: !!process.env.REMOVEBG_API_KEY })\""
     },
     "keywords": [
